@@ -1,0 +1,380 @@
+import pandas as pd
+import numpy as np
+
+def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
+    """
+    Computes True Current Stock = Shift Start Stock - Consumed Parts.
+    - shift_start_stock: dict of {part_number: qty}
+    - tcf_drops: DataFrame of cabs built this shift
+    - bom: DataFrame of BOM mappings (Short VC -> Engine, Cockpit, Front Wiring)
+    - bom_part_col: column in BOM corresponding to this part type ('Engine', 'Cockpit', 'Front Wiring')
+    
+    Returns:
+      - true_stock: dict of {part_number: true_qty}
+      - consumed: dict of {part_number: consumed_qty}
+      - warnings: list of strings (e.g. part number went negative)
+    """
+    true_stock = shift_start_stock.copy()
+    consumed = {part: 0 for part in shift_start_stock}
+    warnings = []
+    
+    # If no tcf_drops or bom, true_stock is just shift_start_stock
+    if tcf_drops is None or tcf_drops.empty or bom is None or bom.empty:
+        return true_stock, consumed, warnings
+        
+    for idx, row in tcf_drops.iterrows():
+        full_vc = row.get('VEHICLE CODE')
+        if pd.isna(full_vc):
+            continue
+        short_vc = str(full_vc).strip()[:9]
+        
+        # Look up in BOM
+        bom_rows = bom[bom['Short Vehicle Code'] == short_vc]
+        if bom_rows.empty:
+            continue
+            
+        part_no = bom_rows.iloc[0].get(bom_part_col)
+        if not part_no or str(part_no).strip() in ['0', 'None', 'nan']:
+            continue
+            
+        part_no = str(part_no).strip()
+        if part_no in true_stock:
+            true_stock[part_no] -= 1
+            consumed[part_no] += 1
+        else:
+            # Consumed a part that wasn't in starting stock file
+            true_stock[part_no] = -1
+            consumed[part_no] = 1
+            
+    # Check for negative true stock
+    for part, qty in true_stock.items():
+        if qty < 0:
+            warnings.append(f"Part {part} has negative true current stock ({qty}) due to backflushing.")
+            
+    return true_stock, consumed, warnings
+
+def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
+    """
+    Runs the FIFO allocation loop for PBS cabs.
+    - pbs_queue: DataFrame of cabs in PBS (sorted FIFO by PBS LIFT, HOLD BY is null)
+    - bom: BOM DataFrame
+    - true_engine: dict of true stock for Engines (None if not available)
+    - true_cockpit: dict of true stock for Cockpits (None if not available)
+    - true_wiring: dict of true stock for Wiring (None if not available)
+    
+    Returns:
+      - results: list of dicts representing allocated cabs
+      - final_stocks: dict containing final virtual stocks
+    """
+    # Create working copies of stock pools
+    virt_engine = true_engine.copy() if true_engine is not None else None
+    virt_cockpit = true_cockpit.copy() if true_cockpit is not None else None
+    virt_wiring = true_wiring.copy() if true_wiring is not None else None
+    
+    results = []
+    
+    # If no cabs in queue, return empty
+    if pbs_queue is None or pbs_queue.empty:
+        return [], {
+            'engine': virt_engine,
+            'cockpit': virt_cockpit,
+            'wiring': virt_wiring
+        }
+        
+    # Process cabs in FIFO order
+    for idx, row in pbs_queue.iterrows():
+        biw_num = row.get('BIW NUMBER')
+        vin = row.get('VIN')
+        full_vc = row.get('VEHICLE CODE')
+        pbs_lift = row.get('PBS LIFT')
+        colour = row.get('COLOUR')
+        product = row.get('PRODUCT')
+        sales_desc = row.get('SALES DESCRIPTION')
+        shop = row.get('SHOP')
+        
+        short_vc = str(full_vc).strip()[:9]
+        
+        # BOM Lookup
+        bom_rows = bom[bom['Short Vehicle Code'] == short_vc] if bom is not None else pd.DataFrame()
+        
+        if bom_rows.empty:
+            results.append({
+                'BIW NUMBER': biw_num,
+                'VIN': vin,
+                'VEHICLE CODE': full_vc,
+                'Short VC': short_vc,
+                'PBS LIFT': pbs_lift,
+                'COLOUR': colour,
+                'PRODUCT': product,
+                'SALES DESCRIPTION': sales_desc,
+                'SHOP': shop,
+                'STATUS': '⚠️ Unknown VC',
+                'BLOCKING_REASON': f"VC prefix '{short_vc}' not found in BOM.",
+                'Engine_Part': None,
+                'Cockpit_Part': None,
+                'Wiring_Part': None,
+                'Engine_Stock_After': None,
+                'Cockpit_Stock_After': None,
+                'Wiring_Stock_After': None
+            })
+            continue
+            
+        bom_entry = bom_rows.iloc[0]
+        eng_part = bom_entry.get('Engine')
+        ck_part = bom_entry.get('Cockpit')
+        wh_part = bom_entry.get('Front Wiring')
+        
+        eng_part_str = str(eng_part).strip() if eng_part else None
+        ck_part_str = str(ck_part).strip() if ck_part else None
+        wh_part_str = str(wh_part).strip() if wh_part else None
+        
+        # Check for incomplete BOM (any required part is None or '0')
+        incomplete = []
+        if not eng_part_str or eng_part_str == '0':
+            incomplete.append('Engine')
+        if not ck_part_str or ck_part_str == '0':
+            incomplete.append('Cockpit')
+        if not wh_part_str or wh_part_str == '0':
+            incomplete.append('Front Wiring')
+            
+        if incomplete:
+            results.append({
+                'BIW NUMBER': biw_num,
+                'VIN': vin,
+                'VEHICLE CODE': full_vc,
+                'Short VC': short_vc,
+                'PBS LIFT': pbs_lift,
+                'COLOUR': colour,
+                'PRODUCT': product,
+                'SALES DESCRIPTION': sales_desc,
+                'SHOP': shop,
+                'STATUS': '⚠️ BOM Incomplete',
+                'BLOCKING_REASON': f"Incomplete BOM for parts: {', '.join(incomplete)}",
+                'Engine_Part': eng_part_str,
+                'Cockpit_Part': ck_part_str,
+                'Wiring_Part': wh_part_str,
+                'Engine_Stock_After': None,
+                'Cockpit_Stock_After': None,
+                'Wiring_Stock_After': None
+            })
+            continue
+            
+        # Check stock availability
+        has_engine = True
+        has_cockpit = True
+        has_wiring = True
+        
+        shortages = []
+        
+        # Engine stock check
+        if virt_engine is not None:
+            stock = virt_engine.get(eng_part_str, 0)
+            if stock <= 0:
+                has_engine = False
+                shortages.append(f"Engine {eng_part_str} (Stock: {stock})")
+                
+        # Cockpit stock check
+        if virt_cockpit is not None:
+            stock = virt_cockpit.get(ck_part_str, 0)
+            if stock <= 0:
+                has_cockpit = False
+                shortages.append(f"Cockpit {ck_part_str} (Stock: {stock})")
+                
+        # Wiring stock check
+        if virt_wiring is not None:
+            stock = virt_wiring.get(wh_part_str, 0)
+            if stock <= 0:
+                has_wiring = False
+                shortages.append(f"Wiring {wh_part_str} (Stock: {stock})")
+                
+        # If all available, allocate
+        if has_engine and has_cockpit and has_wiring:
+            # Decrement stocks
+            if virt_engine is not None and eng_part_str in virt_engine:
+                virt_engine[eng_part_str] -= 1
+            if virt_cockpit is not None and ck_part_str in virt_cockpit:
+                virt_cockpit[ck_part_str] -= 1
+            if virt_wiring is not None and wh_part_str in virt_wiring:
+                virt_wiring[wh_part_str] -= 1
+                
+            results.append({
+                'BIW NUMBER': biw_num,
+                'VIN': vin,
+                'VEHICLE CODE': full_vc,
+                'Short VC': short_vc,
+                'PBS LIFT': pbs_lift,
+                'COLOUR': colour,
+                'PRODUCT': product,
+                'SALES DESCRIPTION': sales_desc,
+                'SHOP': shop,
+                'STATUS': '✅ Ready for TCF',
+                'BLOCKING_REASON': None,
+                'Engine_Part': eng_part_str,
+                'Cockpit_Part': ck_part_str,
+                'Wiring_Part': wh_part_str,
+                'Engine_Stock_After': virt_engine.get(eng_part_str) if virt_engine is not None else None,
+                'Cockpit_Stock_After': virt_cockpit.get(ck_part_str) if virt_cockpit is not None else None,
+                'Wiring_Stock_After': virt_wiring.get(wh_part_str) if virt_wiring is not None else None
+            })
+        else:
+            results.append({
+                'BIW NUMBER': biw_num,
+                'VIN': vin,
+                'VEHICLE CODE': full_vc,
+                'Short VC': short_vc,
+                'PBS LIFT': pbs_lift,
+                'COLOUR': colour,
+                'PRODUCT': product,
+                'SALES DESCRIPTION': sales_desc,
+                'SHOP': shop,
+                'STATUS': '🚫 Blocked',
+                'BLOCKING_REASON': "Shortage: " + ", ".join(shortages),
+                'Engine_Part': eng_part_str,
+                'Cockpit_Part': ck_part_str,
+                'Wiring_Part': wh_part_str,
+                'Engine_Stock_After': virt_engine.get(eng_part_str) if virt_engine is not None else None,
+                'Cockpit_Stock_After': virt_cockpit.get(ck_part_str) if virt_cockpit is not None else None,
+                'Wiring_Stock_After': virt_wiring.get(wh_part_str) if virt_wiring is not None else None
+            })
+            
+    return results, {
+        'engine': virt_engine,
+        'cockpit': virt_cockpit,
+        'wiring': virt_wiring
+    }
+
+def get_paint_float_stages(df_float):
+    """
+    Classifies each cab in the float report into its current stage in the paint flow.
+    Flow order: BIW LIFTING -> PTCED -> SEALANT -> TOPCOAT -> PBS LIFT (closest to TCF)
+    """
+    stages = []
+    
+    for idx, row in df_float.iterrows():
+        biw_lift = row.get('BIW LIFTING')
+        ptced = row.get('PTCED')
+        sealant = row.get('SEALANT')
+        topcoat = row.get('TOPCOAT')
+        pbs_lift = row.get('PBS LIFT')
+        
+        # Ordered classification (check closest to PBS first)
+        if pd.notna(pbs_lift):
+            stage = '1. PBS LIFT'
+        elif pd.notna(topcoat):
+            stage = '2. TOPCOAT'
+        elif pd.notna(sealant):
+            stage = '3. SEALANT'
+        elif pd.notna(ptced):
+            stage = '4. PTCED'
+        elif pd.notna(biw_lift):
+            stage = '5. BIW LIFTING'
+        else:
+            stage = '6. UNKNOWN'
+            
+        stages.append(stage)
+        
+    df_with_stage = df_float.copy()
+    df_with_stage['Paint_Stage'] = stages
+    return df_with_stage
+
+def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
+    """
+    Computes material requirements and shortages for each stage of the paint float.
+    - df_float_stages: Float report with 'Paint_Stage' column and 'SHOP' column
+    - bom: Master BOM DataFrame
+    - true_stocks: dict containing {'engine': dict, 'cockpit': dict, 'wiring': dict} True Stock pools
+    
+    Returns:
+      - shortage_report: DataFrame with columns: Stage, TCF Line, Aggregate Type, Part Number, Demand in Stage, Cumulative Demand, True Stock, Net Balance, Status
+    """
+    # Sort order of stages (from closest to TCF to furthest)
+    stage_order = ['1. PBS LIFT', '2. TOPCOAT', '3. SEALANT', '4. PTCED', '5. BIW LIFTING']
+    
+    # Accumulate demand per (stage, agg_type, part_number, shop)
+    demand_counts = {}
+    
+    for idx, row in df_float_stages.iterrows():
+        stage = row['Paint_Stage']
+        if stage not in stage_order:
+            continue
+            
+        shop = row.get('SHOP')
+        if pd.isna(shop) or not str(shop).strip():
+            shop = 'Unknown'
+        else:
+            shop = str(shop).strip()
+            
+        full_vc = row.get('VEHICLE CODE')
+        short_vc = str(full_vc).strip()[:9]
+        
+        # Look up in BOM
+        bom_rows = bom[bom['Short Vehicle Code'] == short_vc] if bom is not None else pd.DataFrame()
+        if bom_rows.empty:
+            continue
+            
+        bom_entry = bom_rows.iloc[0]
+        
+        parts = {
+            'Engine': str(bom_entry.get('Engine')).strip() if bom_entry.get('Engine') else None,
+            'Cockpit': str(bom_entry.get('Cockpit')).strip() if bom_entry.get('Cockpit') else None,
+            'Front Wiring': str(bom_entry.get('Front Wiring')).strip() if bom_entry.get('Front Wiring') else None
+        }
+        
+        for agg_type, part_no in parts.items():
+            if not part_no or part_no in ['0', 'None', 'nan']:
+                continue
+                
+            key = (stage, agg_type, part_no, shop)
+            demand_counts[key] = demand_counts.get(key, 0) + 1
+            
+    # Calculate cumulative demand per (agg_type, part_no, shop)
+    part_keys = set((agg_type, part_no, shop) for (_, agg_type, part_no, shop) in demand_counts.keys())
+    
+    report_rows = []
+    
+    # For each part number on each TCF Line, calculate demands across all stages
+    for agg_type, part_no, shop in sorted(part_keys, key=lambda x: (x[2], x[0], x[1])):
+        # Find stock
+        stock = 0
+        stock_loaded = False
+        if agg_type == 'Engine' and true_stocks.get('engine') is not None:
+            stock = true_stocks['engine'].get(part_no, 0)
+            stock_loaded = True
+        elif agg_type == 'Cockpit' and true_stocks.get('cockpit') is not None:
+            stock = true_stocks['cockpit'].get(part_no, 0)
+            stock_loaded = True
+        elif agg_type == 'Front Wiring' and true_stocks.get('wiring') is not None:
+            stock = true_stocks['wiring'].get(part_no, 0)
+            stock_loaded = True
+            
+        cum_demand = 0
+        for stage in stage_order:
+            stage_demand = demand_counts.get((stage, agg_type, part_no, shop), 0)
+            cum_demand += stage_demand
+            
+            balance = stock - cum_demand
+            
+            if stage_demand > 0 or cum_demand > 0:
+                # Determine status
+                if not stock_loaded:
+                    status = "⚠️ Stock Not Loaded"
+                elif balance < 0:
+                    status = f"🚫 Shortage ({abs(balance)} units)"
+                elif balance < 5:
+                    status = "🟠 Low Stock Warning"
+                else:
+                    status = "🟢 Healthy"
+                    
+                report_rows.append({
+                    'Stage': stage,
+                    'TCF Line': shop,
+                    'Aggregate Type': agg_type,
+                    'Part Number': part_no,
+                    'Stage Demand': stage_demand,
+                    'Cumulative Demand': cum_demand,
+                    'True Current Stock': stock if stock_loaded else None,
+                    'Net Balance': balance if stock_loaded else None,
+                    'Status': status
+                })
+                
+    return pd.DataFrame(report_rows)

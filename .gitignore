@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Large data spreadsheets (plant reports)
+*.xlsx
+*.xls
+*.xlsb
+*.csv
+
+# Streamlit config and logs
+.streamlit/
+*.log
+
+# Workspace/IDE folders
+.vscode/
+.idea/
+.agents/
