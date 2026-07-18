@@ -404,7 +404,7 @@ if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold
     st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
 
 # Auto-detect file mappings in workspace
-workspace_dir = r"d:\Planner Dashboard"
+workspace_dir = os.path.dirname(os.path.abspath(__file__))
 active_dir = workspace_dir
 
 # Scan active folder for default files dynamically

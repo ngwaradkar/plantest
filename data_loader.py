@@ -383,7 +383,7 @@ def detect_and_classify_files(directory_path):
                 
     return classifications
 
-DB_PATH = r"d:\Planner Dashboard\clear_to_build.db"
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clear_to_build.db")
 
 def init_db():
     """Initializes the database and table if they do not exist."""
