@@ -4,8 +4,11 @@ import numpy as np
 import os
 import re
 import matplotlib.pyplot as plt
+import importlib
 import data_loader as dl
+importlib.reload(dl)
 import allocation_engine as ae
+importlib.reload(ae)
 
 # Set page config
 st.set_page_config(
