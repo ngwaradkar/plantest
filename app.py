@@ -90,26 +90,38 @@ if 'engine_df' not in st.session_state:
 
 # Auto-detect file mappings in workspace
 workspace_dir = r"d:\Planner Dashboard"
-default_files = {
-    'BOM': 'Bom details.xlsx',
-    'FLOAT_REPORT': 'PPC_Float_Report_14_7_2026_2_40 PM.xlsb',
-    'TCF1_WIRING_STOCK': 'TCF 1 Wiring Harness report NEW 06.30 AM 16.06.2026.xls',
-    'TCF2_WIRING_STOCK': 'TCF-2 Wiring Harness report 06.30 AM 16.06.2026_....xls',
-    'TCF1_ALTROZ_COCKPIT_STOCK': 'TCF 1 COCKPIT WH 16.06.2026@8.22PM.xlsx',
-    'TCF1_NOVA_COCKPIT_STOCK': 'Nova Cockpit Wiring Harness 16.06.2026@3.23PM.xlsx',
-    'TCF2_COCKPIT_STOCK': 'TCF 2 Harrier safari cockpit WH_16.06.2026@6.39PM.xlsb',
-    'TCF1_VGL': 'Vehicle_Generation_List_07_08_2026 06_30_00.xls',
-    'TCF2_VGL': 'TCF2_VEHICLE_GENERATION_LIST_07_08_2026 06_30_00.xls'
-}
+
+st.sidebar.markdown("### 📁 Data Source Settings")
+data_folder_option = st.sidebar.selectbox(
+    "Select Data Folder",
+    options=["Root Directory (Production Data)", "TEST Directory (Testing Data)"],
+    index=1 if os.path.exists(os.path.join(workspace_dir, "TEST")) else 0,
+    help="Select the folder where the plant Excel files are stored."
+)
+
+if "TEST Directory" in data_folder_option:
+    active_dir = os.path.join(workspace_dir, "TEST")
+else:
+    active_dir = workspace_dir
+
+# Scan active folder for default files dynamically
+detected_files = dl.detect_and_classify_files(active_dir)
+
+all_categories = [
+    'BOM', 'FLOAT_REPORT', 
+    'TCF1_WIRING_STOCK', 'TCF2_WIRING_STOCK', 
+    'TCF1_ALTROZ_COCKPIT_STOCK', 'TCF1_NOVA_COCKPIT_STOCK', 'TCF2_COCKPIT_STOCK',
+    'TCF1_VGL', 'TCF2_VGL'
+]
 
 loaded_data = {}
 
 # ----------------- CONTROL CENTER (UPLOADS & ENGINE STOCKS) -----------------
 # We put the control panel in a clean main-body expander.
 # The expander starts collapsed if the core files are already auto-loaded.
-default_bom_exists = os.path.exists(os.path.join(workspace_dir, default_files['BOM']))
-default_float_exists = os.path.exists(os.path.join(workspace_dir, default_files['FLOAT_REPORT']))
-default_core_available = default_bom_exists and default_float_exists
+default_bom_path = detected_files.get('BOM')
+default_float_path = detected_files.get('FLOAT_REPORT')
+default_core_available = default_bom_path is not None and default_float_path is not None
 
 config_expander = st.expander(
     "⚙️ Control Panel: File Uploads & Engine Starting Stocks (Click to Expand/Collapse)",
@@ -132,10 +144,10 @@ with config_expander:
         st.markdown("##### Loaded Files Status")
         
         # Populate loaded_data
-        for category, filename in default_files.items():
+        for category in all_categories:
             is_uploaded = category in uploaded_mappings
-            filepath = os.path.join(workspace_dir, filename)
-            is_default_exists = os.path.exists(filepath)
+            detected_path = detected_files.get(category)
+            is_default_exists = detected_path is not None and os.path.exists(detected_path)
             
             if is_uploaded:
                 status_icon = "🟢 Uploaded"
@@ -143,8 +155,8 @@ with config_expander:
                 loaded_data[category] = uploaded_mappings[category]
             elif is_default_exists:
                 status_icon = "🔌 Auto-loaded"
-                source_label = f"({filename})"
-                loaded_data[category] = filepath
+                source_label = f"({os.path.basename(detected_path)})"
+                loaded_data[category] = detected_path
             else:
                 status_icon = "🔴 Missing"
                 source_label = ""

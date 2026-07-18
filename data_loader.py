@@ -55,16 +55,56 @@ def load_bom(filepath_or_buffer):
 
 def load_float_report(filepath_or_buffer):
     """
-    Loads PPC Float Report (.xlsb) and returns a cleaned DataFrame.
+    Loads PPC Float Report (which can be .xlsb or .xls disguised HTML) and returns a cleaned DataFrame.
     Required columns: 'BIW NUMBER', 'VEHICLE CODE', 'SHOP', 'PBS LIFT', 'HOLD BY', 'REASONS S', 'VIN'
     """
-    # Read the file using pyxlsb
+    # Check if the file is an HTML table disguised as .xls
+    is_html = False
     if isinstance(filepath_or_buffer, str):
-        df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+        ext = os.path.splitext(filepath_or_buffer.lower())[1]
+        if ext == '.xls':
+            try:
+                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
+                    first_chars = f.read(500)
+                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
+                        is_html = True
+            except Exception:
+                pass
+                
+    if is_html:
+        dfs = pd.read_html(filepath_or_buffer)
+        if not dfs:
+            raise ValueError("No tables found in PPC Float Report HTML file.")
+        df = dfs[0]
+        # Promote first row to headers
+        df.columns = [str(c).strip() for c in df.iloc[0]]
+        df = df.iloc[1:].reset_index(drop=True)
     else:
-        # Streamlit uploaded file (BytesIO)
-        df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-        
+        # Read the file using pd.read_excel
+        if isinstance(filepath_or_buffer, str):
+            ext = os.path.splitext(filepath_or_buffer.lower())[1]
+            if ext == '.xlsb':
+                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+            else:
+                df = pd.read_excel(filepath_or_buffer)
+        else:
+            # For stream or bytes, let's try to detect/read
+            try:
+                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+            except Exception:
+                try:
+                    filepath_or_buffer.seek(0)
+                    df = pd.read_excel(filepath_or_buffer)
+                except Exception:
+                    try:
+                        filepath_or_buffer.seek(0)
+                        dfs = pd.read_html(filepath_or_buffer)
+                        df = dfs[0]
+                        df.columns = [str(c).strip() for c in df.iloc[0]]
+                        df = df.iloc[1:].reset_index(drop=True)
+                    except Exception as e:
+                        raise ValueError(f"Failed to load float report: {e}")
+
     df.columns = [str(c).strip() for c in df.columns]
     
     # Check columns
@@ -276,17 +316,68 @@ def classify_files(uploaded_files):
                 classifications['TCF2_VGL'] = f
             else:
                 classifications['TCF1_VGL'] = f
-        elif 'wiring' in name or 'harness' in name:
-            if 'tcf2' in name or 'tcf-2' in name or 'tcf_2' in name:
-                classifications['TCF2_WIRING_STOCK'] = f
-            else:
-                classifications['TCF1_WIRING_STOCK'] = f
         elif 'cockpit' in name:
-            if 'tcf2' in name or 'tcf-2' in name or 'tcf_2' in name:
+            if 'tcf2' in name or 'tcf-2' in name or 'tcf_2' in name or 'harrier' in name or 'safari' in name:
                 classifications['TCF2_COCKPIT_STOCK'] = f
             elif 'nova' in name:
                 classifications['TCF1_NOVA_COCKPIT_STOCK'] = f
             else:
                 classifications['TCF1_ALTROZ_COCKPIT_STOCK'] = f
+        elif 'wiring' in name or 'harness' in name:
+            if 'tcf2' in name or 'tcf-2' in name or 'tcf_2' in name:
+                classifications['TCF2_WIRING_STOCK'] = f
+            else:
+                classifications['TCF1_WIRING_STOCK'] = f
+                
+    return classifications
+
+def detect_and_classify_files(directory_path):
+    """
+    Scans directory_path and classifies all xls, xlsx, xlsb files by their names.
+    Returns a dict mapping categories to their absolute file paths.
+    """
+    if not os.path.exists(directory_path) or not os.path.isdir(directory_path):
+        return {}
+        
+    classifications = {}
+    
+    # List files in directory
+    try:
+        filenames = os.listdir(directory_path)
+    except Exception:
+        return {}
+        
+    for name in filenames:
+        path = os.path.join(directory_path, name)
+        if not os.path.isfile(path):
+            continue
+            
+        ext = os.path.splitext(name.lower())[1]
+        if ext not in ['.xlsx', '.xls', '.xlsb', '.csv']:
+            continue
+            
+        name_lower = name.lower()
+        
+        if 'bom' in name_lower:
+            classifications['BOM'] = path
+        elif 'float' in name_lower:
+            classifications['FLOAT_REPORT'] = path
+        elif 'vgl' in name_lower or 'vehicle_generation' in name_lower or 'generation_list' in name_lower:
+            if 'tcf2' in name_lower or 'tcf_2' in name_lower:
+                classifications['TCF2_VGL'] = path
+            else:
+                classifications['TCF1_VGL'] = path
+        elif 'cockpit' in name_lower:
+            if 'tcf2' in name_lower or 'tcf-2' in name_lower or 'tcf_2' in name_lower or 'harrier' in name_lower or 'safari' in name_lower:
+                classifications['TCF2_COCKPIT_STOCK'] = path
+            elif 'nova' in name_lower:
+                classifications['TCF1_NOVA_COCKPIT_STOCK'] = path
+            else:
+                classifications['TCF1_ALTROZ_COCKPIT_STOCK'] = path
+        elif 'wiring' in name_lower or 'harness' in name_lower:
+            if 'tcf2' in name_lower or 'tcf-2' in name_lower or 'tcf_2' in name_lower:
+                classifications['TCF2_WIRING_STOCK'] = path
+            else:
+                classifications['TCF1_WIRING_STOCK'] = path
                 
     return classifications
