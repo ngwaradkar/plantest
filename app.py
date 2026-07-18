@@ -11,7 +11,12 @@ import allocation_engine as ae
 importlib.reload(ae)
 
 # Initialize session state for theme preference from database
-db_theme = dl.load_metadata('theme', '☀️ White Theme')
+db_theme = '☀️ White Theme'
+try:
+    db_theme = dl.load_metadata('theme', '☀️ White Theme')
+except Exception:
+    pass
+
 if 'theme' not in st.session_state:
     st.session_state.theme = db_theme
 
@@ -35,7 +40,10 @@ with col_theme_select:
     )
     if theme_option != st.session_state.theme:
         st.session_state.theme = theme_option
-        dl.save_metadata('theme', theme_option)
+        try:
+            dl.save_metadata('theme', theme_option)
+        except Exception:
+            pass
         st.rerun()
 
 is_dark = st.session_state.theme == "🌙 Dark Theme"
@@ -376,7 +384,11 @@ engine_default_data = [
 ]
 
 # Load last reset time from database metadata
-db_last_reset = dl.load_metadata('last_reset_time')
+db_last_reset = None
+try:
+    db_last_reset = dl.load_metadata('last_reset_time')
+except Exception:
+    pass
 now = datetime.datetime.now()
 reset_threshold = now.replace(hour=6, minute=30, second=0, microsecond=0)
 
@@ -385,11 +397,18 @@ if 'last_reset_time' not in st.session_state:
         st.session_state.last_reset_time = datetime.datetime.fromisoformat(db_last_reset)
     else:
         st.session_state.last_reset_time = now
-        dl.save_metadata('last_reset_time', now.isoformat())
+        try:
+            dl.save_metadata('last_reset_time', now.isoformat())
+        except Exception:
+            pass
 
 # Load engine stocks from DB or defaults
 if 'engine_df' not in st.session_state:
-    db_engine_df = dl.load_engine_stocks_from_db()
+    db_engine_df = None
+    try:
+        db_engine_df = dl.load_engine_stocks_from_db()
+    except Exception:
+        pass
     if db_engine_df is not None:
         st.session_state.engine_df = db_engine_df
     else:
@@ -398,9 +417,15 @@ if 'engine_df' not in st.session_state:
 # If now has crossed 6:30 AM today, and last reset was before 6:30 AM today
 if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold:
     st.session_state.engine_df = pd.DataFrame(engine_default_data)
-    dl.save_engine_stocks_to_db(st.session_state.engine_df)
+    try:
+        dl.save_engine_stocks_to_db(st.session_state.engine_df)
+    except Exception:
+        pass
     st.session_state.last_reset_time = now
-    dl.save_metadata('last_reset_time', now.isoformat())
+    try:
+        dl.save_metadata('last_reset_time', now.isoformat())
+    except Exception:
+        pass
     st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
 
 # Auto-detect file mappings in workspace
@@ -443,66 +468,83 @@ with config_expander:
             help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
         )
         
-        # Process uploads immediately, saving to disk and replacing older files
+        # Process uploads immediately, saving to session state buffers and optionally to disk
         if uploaded_files:
             uploaded_mappings = dl.classify_files(uploaded_files)
             replaced_any = False
             for category, uploaded_file in uploaded_mappings.items():
+                st.session_state[f"buffer_{category}"] = uploaded_file
+                
                 if category == 'BOM':
                     try:
                         parsed_bom = dl.load_bom(uploaded_file)
-                        dl.save_bom_to_db(parsed_bom)
-                        dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
-                        st.toast("💾 Master BOM replaced and saved to database!", icon="💾")
+                        try:
+                            dl.save_bom_to_db(parsed_bom)
+                            dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
+                        except Exception:
+                            pass
+                        st.toast("💾 Master BOM replaced!", icon="💾")
                         replaced_any = True
                     except Exception as e:
                         st.error(f"Failed to parse uploaded BOM: {e}")
                 else:
-                    # Find old file of same category and delete it
-                    old_path = detected_files.get(category)
-                    if old_path and os.path.exists(old_path):
-                        try:
-                            os.remove(old_path)
-                        except Exception as e:
-                            st.error(f"Error removing old file: {e}")
-                    
-                    # Save new file to disk
-                    new_path = os.path.join(active_dir, uploaded_file.name)
+                    # Try to save file to disk (succeeds locally, fails safely in read-only cloud)
                     try:
+                        old_path = detected_files.get(category)
+                        if old_path and os.path.exists(old_path):
+                            os.remove(old_path)
+                        
+                        new_path = os.path.join(active_dir, uploaded_file.name)
                         with open(new_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
                         dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
-                        st.toast(f"✅ Replaced {category.replace('_',' ')} with {uploaded_file.name}", icon="✅")
-                        replaced_any = True
-                    except Exception as e:
-                        st.error(f"Error saving new file: {e}")
+                    except Exception:
+                        pass
+                    
+                    st.toast(f"✅ Loaded {category.replace('_',' ')}: {uploaded_file.name}", icon="✅")
+                    replaced_any = True
             if replaced_any:
-                # Force re-scan and rerun to clear uploader state and refresh
                 detected_files = dl.detect_and_classify_files(active_dir)
                 st.rerun()
         
         st.markdown("##### Loaded Files Status")
         
         # Check if database has BOM
-        db_bom_df = dl.load_bom_from_db()
+        db_bom_df = None
+        try:
+            db_bom_df = dl.load_bom_from_db()
+        except Exception:
+            pass
         
         # Populate loaded_data
         for category in all_categories:
             detected_path = detected_files.get(category)
             is_default_exists = detected_path is not None and os.path.exists(detected_path)
             
+            # Check session state buffer first
+            in_mem_buffer = st.session_state.get(f"buffer_{category}")
+            
             if category == 'BOM':
-                if db_bom_df is not None:
-                    loaded_data[category] = "DATABASE"
+                if in_mem_buffer is not None:
+                    loaded_data[category] = in_mem_buffer
+                elif db_bom_df is not None:
+                    loaded_data[category] = 'DATABASE'
                 elif is_default_exists:
                     loaded_data[category] = detected_path
-                # Skip status display for BOM as requested
                 continue
-            
-            uploaded_filename = dl.load_metadata(f"uploaded_{category}")
+                
             display_name = category.replace('_',' ').replace('VGL', 'VIN Generation')
-            
-            if is_default_exists:
+            uploaded_filename = None
+            try:
+                uploaded_filename = dl.load_metadata(f"uploaded_{category}")
+            except Exception:
+                pass
+                
+            if in_mem_buffer is not None:
+                loaded_data[category] = in_mem_buffer
+                status_icon = "🟢 Uploaded"
+                source_label = f"({in_mem_buffer.name})"
+            elif is_default_exists:
                 loaded_data[category] = detected_path
                 if uploaded_filename and os.path.basename(detected_path) == uploaded_filename:
                     status_icon = "🟢 Uploaded"
@@ -540,18 +582,32 @@ with config_expander:
         )
         if not edited_engine_df.equals(st.session_state.engine_df):
             st.session_state.engine_df = edited_engine_df
-            dl.save_engine_stocks_to_db(edited_engine_df)
+            try:
+                dl.save_engine_stocks_to_db(edited_engine_df)
+            except Exception:
+                pass
             
         st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
         if st.button("Reset Clearances to 0 (Shift Start)", type="secondary", use_container_width=True):
             st.session_state.engine_df = pd.DataFrame(engine_default_data)
-            dl.save_engine_stocks_to_db(st.session_state.engine_df)
+            try:
+                dl.save_engine_stocks_to_db(st.session_state.engine_df)
+            except Exception:
+                pass
             now_time = datetime.datetime.now()
             st.session_state.last_reset_time = now_time
-            dl.save_metadata('last_reset_time', now_time.isoformat())
-            # Clear uploaded file registry in metadata
+            try:
+                dl.save_metadata('last_reset_time', now_time.isoformat())
+            except Exception:
+                pass
+            # Clear uploaded file registry in metadata and session state buffers
             for cat in all_categories:
-                dl.save_metadata(f"uploaded_{cat}", "")
+                try:
+                    dl.save_metadata(f"uploaded_{cat}", "")
+                except Exception:
+                    pass
+                if f"buffer_{cat}" in st.session_state:
+                    del st.session_state[f"buffer_{cat}"]
             st.toast("🔄 Engine clearances and upload registries reset!", icon="🔄")
             st.rerun()
 
@@ -569,7 +625,10 @@ try:
             bom_df = dl.load_bom_from_db()
         else:
             bom_df = dl.load_bom(loaded_data['BOM'])
-            dl.save_bom_to_db(bom_df)
+            try:
+                dl.save_bom_to_db(bom_df)
+            except Exception:
+                pass
         
         # 2. Load Float Report
         float_df = dl.load_float_report(loaded_data['FLOAT_REPORT'])
