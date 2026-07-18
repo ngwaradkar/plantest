@@ -500,7 +500,13 @@ with config_expander:
         )
         
         # Process uploads immediately, saving to session state buffers and optionally to disk
-        if uploaded_files:
+        uploaded_ids = [f"{f.name}_{f.size}" for f in uploaded_files] if uploaded_files else []
+        last_processed_ids = st.session_state.get("last_processed_upload_ids", [])
+        
+        if not uploaded_files:
+            st.session_state.last_processed_upload_ids = []
+            
+        if uploaded_files and uploaded_ids != last_processed_ids:
             uploaded_mappings = dl.classify_files(uploaded_files)
             replaced_any = False
             for category, uploaded_file in uploaded_mappings.items():
@@ -534,6 +540,9 @@ with config_expander:
                     
                     st.toast(f"✅ Loaded {category.replace('_',' ')}: {uploaded_file.name}", icon="✅")
                     replaced_any = True
+            
+            # Record that we processed these files
+            st.session_state.last_processed_upload_ids = uploaded_ids
             if replaced_any:
                 detected_files = dl.detect_and_classify_files(active_dir)
                 st.rerun()
