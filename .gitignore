@@ -11,6 +11,11 @@ __pycache__/
 *.csv
 *.db
 
+# Force track Master BOM and TEST directory
+!Bom details.xlsx
+!TEST/
+!TEST/*
+
 # Streamlit logs (but keep config.toml for theming)
 *.log
 
