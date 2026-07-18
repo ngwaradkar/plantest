@@ -23,6 +23,11 @@ def load_bom(filepath_or_buffer):
     Loads BOM details.xlsx and returns a cleaned DataFrame.
     Expected columns: 'Short Vehicle Code', 'Front Wiring', 'Cockpit ', 'Engine'
     """
+    if not isinstance(filepath_or_buffer, str):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
     # openpyxl engine is used for .xlsx
     df = pd.read_excel(filepath_or_buffer, engine='openpyxl')
     
@@ -59,6 +64,11 @@ def load_float_report(filepath_or_buffer):
     Loads PPC Float Report (which can be .xlsb or .xls disguised HTML) and returns a cleaned DataFrame.
     Required columns: 'BIW NUMBER', 'VEHICLE CODE', 'SHOP', 'PBS LIFT', 'HOLD BY', 'REASONS S', 'VIN'
     """
+    if not isinstance(filepath_or_buffer, str):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
     # Check if the file is an HTML table disguised as .xls
     is_html = False
     if isinstance(filepath_or_buffer, str):
@@ -160,6 +170,11 @@ def load_vgl(filepath_or_buffer):
     Expected columns: 'VEHICLE CODE', 'BIW NUMBER', 'VIN NUMBER', 'CREATED DATE', 'SHIFT',
     and either 'ENGINE PART NO / ALTERNATE PART NO' or 'ENGINE PART NO'.
     """
+    if not isinstance(filepath_or_buffer, str):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
     # Read HTML
     if isinstance(filepath_or_buffer, str):
         dfs = pd.read_html(filepath_or_buffer)
@@ -229,6 +244,11 @@ def load_stock_grouped(filepath_or_buffer, sheet_name, vc_col_idx, part_col_idx,
     Skips skip_rows, reads columns by index, forward-fills part_number and qty,
     deduplicated to return a dict {part_number: qty}.
     """
+    if not isinstance(filepath_or_buffer, str):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
     # Read the sheet with no header to get index-based access
     # Detect file type
     if isinstance(filepath_or_buffer, str):
