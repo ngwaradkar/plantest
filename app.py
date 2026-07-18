@@ -428,9 +428,23 @@ if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold
         pass
     st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
 
+# Load active directory selection from database metadata
+db_data_source = 'Root Directory (Production)'
+try:
+    db_data_source = dl.load_metadata('data_source_dir', 'Root Directory (Production)')
+except Exception:
+    pass
+
+if 'data_source_dir' not in st.session_state:
+    st.session_state.data_source_dir = db_data_source
+
 # Auto-detect file mappings in workspace
 workspace_dir = os.path.dirname(os.path.abspath(__file__))
-active_dir = workspace_dir
+
+if st.session_state.data_source_dir == 'TEST Directory (Sample Data)':
+    active_dir = os.path.join(workspace_dir, "TEST")
+else:
+    active_dir = workspace_dir
 
 # Scan active folder for default files dynamically
 detected_files = dl.detect_and_classify_files(active_dir)
@@ -462,6 +476,23 @@ with config_expander:
     
     with col_upload:
         st.markdown("#### 📤 Upload Raw Plant Files")
+        
+        # Data source selector inside Control Panel
+        dir_option = st.selectbox(
+            "📁 Active Data Source Directory",
+            options=["Root Directory (Production)", "TEST Directory (Sample Data)"],
+            index=0 if st.session_state.data_source_dir == "Root Directory (Production)" else 1,
+            key="data_source_dir_select",
+            help="Select whether the dashboard should load data from the production Root folder or the TEST sample data folder."
+        )
+        if dir_option != st.session_state.data_source_dir:
+            st.session_state.data_source_dir = dir_option
+            try:
+                dl.save_metadata('data_source_dir', dir_option)
+            except Exception:
+                pass
+            st.rerun()
+            
         uploaded_files = st.file_uploader(
             "Upload plant reports to replace existing ones",
             accept_multiple_files=True,
@@ -546,7 +577,10 @@ with config_expander:
                 source_label = f"({in_mem_buffer.name})"
             elif is_default_exists:
                 loaded_data[category] = detected_path
-                if uploaded_filename and os.path.basename(detected_path) == uploaded_filename:
+                if st.session_state.data_source_dir == 'TEST Directory (Sample Data)':
+                    status_icon = "🟢 TEST Data loaded"
+                    source_label = f"({os.path.basename(detected_path)})"
+                elif uploaded_filename and os.path.basename(detected_path) == uploaded_filename:
                     status_icon = "🟢 Uploaded"
                     source_label = f"({uploaded_filename})"
                 else:
