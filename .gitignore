@@ -9,6 +9,7 @@ __pycache__/
 *.xls
 *.xlsb
 *.csv
+*.db
 
 # Streamlit logs (but keep config.toml for theming)
 *.log

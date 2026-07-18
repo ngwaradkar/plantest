@@ -10,127 +10,354 @@ importlib.reload(dl)
 import allocation_engine as ae
 importlib.reload(ae)
 
+# Initialize session state for theme preference from database
+db_theme = dl.load_metadata('theme', '☀️ White Theme')
+if 'theme' not in st.session_state:
+    st.session_state.theme = db_theme
+
 # Set page config
 st.set_page_config(
     page_title="PBS Clear-to-Build Dashboard",
     page_icon="🚗",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Premium White Theme Styling
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    /* Force light/white background globally */
-    .stApp {
-        background-color: #FAFBFC;
-    }
-    
-    section[data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #E8ECF1;
-    }
-    
-    .main-title {
-        font-size: 2.4rem;
-        font-weight: 800;
-        color: #1B2A4A;
-        margin-bottom: 0.1rem;
-        letter-spacing: -0.03em;
-    }
-    
-    .subtitle {
-        color: #6B7A99;
-        font-size: 1.05rem;
-        font-weight: 400;
-        margin-bottom: 1.8rem;
-    }
-    
-    .card-ready {
-        background-color: #F0FAF4;
-        border-left: 4px solid #22C55E;
-        padding: 1rem;
-        border-radius: 10px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    }
-    
-    .card-blocked {
-        background-color: #FFF5F5;
-        border-left: 4px solid #EF4444;
-        padding: 1rem;
-        border-radius: 10px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    }
-    
-    /* Metric Cards — white cards with subtle border and shadow */
-    div[data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E8ECF1;
-        padding: 1.1rem 1rem;
-        border-radius: 12px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-    }
-    
-    div[data-testid="stMetric"] label {
-        color: #6B7A99 !important;
-        font-weight: 500 !important;
-        font-size: 0.82rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
-    
-    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-        color: #1B2A4A !important;
-        font-weight: 700 !important;
-    }
-    
-    /* Tabs styling */
-    button[data-baseweb="tab"] {
-        color: #6B7A99 !important;
-        font-weight: 500 !important;
-    }
-    
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #0D9488 !important;
-        border-bottom-color: #0D9488 !important;
-    }
-    
-    /* Expander styling */
-    details[data-testid="stExpander"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E8ECF1;
-        border-radius: 12px;
-    }
-    
-    /* Headings inside tabs */
-    h3 {
-        color: #1B2A4A !important;
-        font-weight: 700 !important;
-    }
-    
-    h4 {
-        color: #374A6B !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Horizontal rules */
-    hr {
-        border-color: #E8ECF1 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Render theme selector at top right
+col_title_card, col_theme_select = st.columns([5.5, 1])
+with col_theme_select:
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    theme_option = st.selectbox(
+        "🎨 Interface Theme",
+        options=["☀️ White Theme", "🌙 Dark Theme"],
+        index=0 if st.session_state.theme == '☀️ White Theme' else 1,
+        key="theme_selection_key"
+    )
+    if theme_option != st.session_state.theme:
+        st.session_state.theme = theme_option
+        dl.save_metadata('theme', theme_option)
+        st.rerun()
 
-# App Title
-st.markdown("<h1 class='main-title'>Clear to Build (CTB) Allocation Dashboard</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>", unsafe_allow_html=True)
+is_dark = st.session_state.theme == "🌙 Dark Theme"
+
+# Inject style blocks dynamically
+if is_dark:
+    st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        /* Force Dark background globally */
+        .stApp {
+            background-color: #0F172A !important;
+            color: #F1F5F9 !important;
+        }
+        
+        /* Completely hide sidebar and collapse button */
+        [data-testid="stSidebar"], section[data-testid="stSidebar"] {
+            display: none !important;
+            width: 0px !important;
+        }
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
+        .stApp [data-testid="stHeader"] {
+            left: 0px !important;
+            background-color: transparent !important;
+        }
+        .main .block-container {
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+            max-width: 100% !important;
+        }
+        
+        .card-ready {
+            background-color: #064E3B !important;
+            border-left: 4px solid #10B981 !important;
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            color: #D1FAE5 !important;
+        }
+        
+        .card-blocked {
+            background-color: #7F1D1D !important;
+            border-left: 4px solid #EF4444 !important;
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            color: #FEE2E2 !important;
+        }
+        
+        /* Premium Metric Cards with Custom Accent Colors */
+        div[data-testid="stMetric"] {
+            background-color: #1E293B !important;
+            border: 1px solid #334155 !important;
+            padding: 1rem 1.25rem !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        div[data-testid="stMetric"]:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.6) !important;
+            border-color: #475569 !important;
+        }
+        
+        /* Apply colorful accents to each metric column */
+        div[data-testid="column"]:nth-of-type(1) div[data-testid="stMetric"] {
+            border-left: 5px solid #6366F1 !important; /* Indigo */
+        }
+        div[data-testid="column"]:nth-of-type(2) div[data-testid="stMetric"] {
+            border-left: 5px solid #06B6D4 !important; /* Cyan */
+        }
+        div[data-testid="column"]:nth-of-type(3) div[data-testid="stMetric"] {
+            border-left: 5px solid #10B981 !important; /* Emerald */
+        }
+        div[data-testid="column"]:nth-of-type(4) div[data-testid="stMetric"] {
+            border-left: 5px solid #F43F5E !important; /* Rose */
+        }
+        div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] {
+            border-left: 5px solid #A78BFA !important; /* Violet */
+        }
+        
+        div[data-testid="stMetric"] label {
+            color: #94A3B8 !important;
+            font-weight: 600 !important;
+            font-size: 0.82rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+            color: #F8FAFC !important;
+            font-weight: 800 !important;
+            font-size: 1.8rem !important;
+        }
+        
+        /* Modern segmented control styling for dark tabs */
+        div[data-baseweb="tab-list"] {
+            background-color: #1E293B !important;
+            padding: 0.25rem !important;
+            border-radius: 12px !important;
+            gap: 6px !important;
+            margin-bottom: 1.5rem !important;
+        }
+        button[data-baseweb="tab"] {
+            background-color: transparent !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.6rem 1.2rem !important;
+            color: #94A3B8 !important;
+            font-weight: 600 !important;
+            transition: all 0.2s ease !important;
+        }
+        button[data-baseweb="tab"]:hover {
+            color: #F8FAFC !important;
+            background-color: rgba(255,255,255,0.05) !important;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background-color: #334155 !important;
+            color: #818CF8 !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2) !important;
+        }
+        div[data-baseweb="tab-border"] {
+            display: none !important;
+        }
+        
+        /* Expander styling */
+        details[data-testid="stExpander"] {
+            background-color: #1E293B !important;
+            border: 1px solid #334155 !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1) !important;
+        }
+        
+        /* Headings */
+        h3 {
+            color: #F8FAFC !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.02em;
+        }
+        
+        h4 {
+            color: #E2E8F0 !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.01em;
+        }
+        
+        /* Horizontal rules */
+        hr {
+            border-color: #334155 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        /* Force light/white background globally */
+        .stApp {
+            background-color: #F8FAFC;
+        }
+        
+        /* Completely hide sidebar and collapse button */
+        [data-testid="stSidebar"], section[data-testid="stSidebar"] {
+            display: none !important;
+            width: 0px !important;
+        }
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
+        .stApp [data-testid="stHeader"] {
+            left: 0px !important;
+        }
+        .main .block-container {
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+            max-width: 100% !important;
+        }
+        
+        .card-ready {
+            background-color: #F0FAF4;
+            border-left: 4px solid #10B981;
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+        
+        .card-blocked {
+            background-color: #FFF5F5;
+            border-left: 4px solid #EF4444;
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+        
+        /* Premium Metric Cards with Custom Accent Colors */
+        div[data-testid="stMetric"] {
+            background-color: #FFFFFF !important;
+            border: 1px solid #E2E8F0 !important;
+            padding: 1rem 1.25rem !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        div[data-testid="stMetric"]:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.1), 0 4px 12px -2px rgba(0, 0, 0, 0.04) !important;
+            border-color: #CBD5E1 !important;
+        }
+        
+        /* Apply colorful accents to each metric column */
+        div[data-testid="column"]:nth-of-type(1) div[data-testid="stMetric"] {
+            border-left: 5px solid #4F46E5 !important; /* Indigo */
+        }
+        div[data-testid="column"]:nth-of-type(2) div[data-testid="stMetric"] {
+            border-left: 5px solid #06B6D4 !important; /* Cyan */
+        }
+        div[data-testid="column"]:nth-of-type(3) div[data-testid="stMetric"] {
+            border-left: 5px solid #10B981 !important; /* Emerald */
+        }
+        div[data-testid="column"]:nth-of-type(4) div[data-testid="stMetric"] {
+            border-left: 5px solid #EF4444 !important; /* Rose */
+        }
+        div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] {
+            border-left: 5px solid #8B5CF6 !important; /* Violet */
+        }
+        
+        div[data-testid="stMetric"] label {
+            color: #64748B !important;
+            font-weight: 600 !important;
+            font-size: 0.82rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+            color: #0F172A !important;
+            font-weight: 800 !important;
+            font-size: 1.8rem !important;
+        }
+        
+        /* Modern segmented control styling for tabs */
+        div[data-baseweb="tab-list"] {
+            background-color: #F1F5F9 !important;
+            padding: 0.25rem !important;
+            border-radius: 12px !important;
+            gap: 6px !important;
+            margin-bottom: 1.5rem !important;
+        }
+        button[data-baseweb="tab"] {
+            background-color: transparent !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.6rem 1.2rem !important;
+            color: #475569 !important;
+            font-weight: 600 !important;
+            transition: all 0.2s ease !important;
+        }
+        button[data-baseweb="tab"]:hover {
+            color: #0F172A !important;
+            background-color: rgba(255,255,255,0.5) !important;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background-color: #FFFFFF !important;
+            color: #4F46E5 !important;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06) !important;
+        }
+        div[data-baseweb="tab-border"] {
+            display: none !important;
+        }
+        
+        /* Expander styling */
+        details[data-testid="stExpander"] {
+            background-color: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        
+        /* Headings */
+        h3 {
+            color: #0F172A !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.02em;
+        }
+        
+        h4 {
+            color: #1E293B !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.01em;
+        }
+        
+        /* Horizontal rules */
+        hr {
+            border-color: #E2E8F0 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Render the Title Card
+with col_title_card:
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%); padding: 1.5rem 2rem; border-radius: 16px; margin-bottom: 2rem; color: white; box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.15), 0 8px 10px -6px rgba(6, 182, 212, 0.15);">
+        <h1 style="color: white; font-weight: 850; margin: 0; font-size: 2.1rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif;">Clear to Build (CTB) Allocation Dashboard</h1>
+        <p style="color: rgba(255,255,255,0.95); margin: 0.5rem 0 0 0; font-size: 1rem; font-weight: 400; font-family: 'Inter', sans-serif;">Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ----------------- SESSION STATE & INITIALIZATION -----------------
+import datetime
+
 # Pre-populated Engine Stocks (Defaulting to 0 as requested)
 engine_default_data = [
     {"TCF Line": "TCF1", "Engine Part No": "54850000PTP001", "Model": "Punch MT SA", "TA Code": "3302", "Clearance After 6:30AM": 0},
@@ -148,24 +375,37 @@ engine_default_data = [
     {"TCF Line": "TCF2", "Engine Part No": "547380400103", "Model": "Harrier EV", "TA Code": "5473", "Clearance After 6:30AM": 0}
 ]
 
+# Load last reset time from database metadata
+db_last_reset = dl.load_metadata('last_reset_time')
+now = datetime.datetime.now()
+reset_threshold = now.replace(hour=6, minute=30, second=0, microsecond=0)
+
+if 'last_reset_time' not in st.session_state:
+    if db_last_reset:
+        st.session_state.last_reset_time = datetime.datetime.fromisoformat(db_last_reset)
+    else:
+        st.session_state.last_reset_time = now
+        dl.save_metadata('last_reset_time', now.isoformat())
+
+# Load engine stocks from DB or defaults
 if 'engine_df' not in st.session_state:
+    db_engine_df = dl.load_engine_stocks_from_db()
+    if db_engine_df is not None:
+        st.session_state.engine_df = db_engine_df
+    else:
+        st.session_state.engine_df = pd.DataFrame(engine_default_data)
+
+# If now has crossed 6:30 AM today, and last reset was before 6:30 AM today
+if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold:
     st.session_state.engine_df = pd.DataFrame(engine_default_data)
+    dl.save_engine_stocks_to_db(st.session_state.engine_df)
+    st.session_state.last_reset_time = now
+    dl.save_metadata('last_reset_time', now.isoformat())
+    st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
 
 # Auto-detect file mappings in workspace
 workspace_dir = r"d:\Planner Dashboard"
-
-st.sidebar.markdown("### 📁 Data Source Settings")
-data_folder_option = st.sidebar.selectbox(
-    "Select Data Folder",
-    options=["Root Directory (Production Data)", "TEST Directory (Testing Data)"],
-    index=1 if os.path.exists(os.path.join(workspace_dir, "TEST")) else 0,
-    help="Select the folder where the plant Excel files are stored."
-)
-
-if "TEST Directory" in data_folder_option:
-    active_dir = os.path.join(workspace_dir, "TEST")
-else:
-    active_dir = workspace_dir
+active_dir = workspace_dir
 
 # Scan active folder for default files dynamically
 detected_files = dl.detect_and_classify_files(active_dir)
@@ -182,9 +422,10 @@ loaded_data = {}
 # ----------------- CONTROL CENTER (UPLOADS & ENGINE STOCKS) -----------------
 # We put the control panel in a clean main-body expander.
 # The expander starts collapsed if the core files are already auto-loaded.
+db_bom_exists = dl.load_bom_from_db() is not None
 default_bom_path = detected_files.get('BOM')
 default_float_path = detected_files.get('FLOAT_REPORT')
-default_core_available = default_bom_path is not None and default_float_path is not None
+default_core_available = (db_bom_exists or default_bom_path is not None) and default_float_path is not None
 
 config_expander = st.expander(
     "⚙️ Control Panel: File Uploads & Engine Starting Stocks (Click to Expand/Collapse)",
@@ -197,34 +438,83 @@ with config_expander:
     with col_upload:
         st.markdown("#### 📤 Upload Raw Plant Files")
         uploaded_files = st.file_uploader(
-            "Drag & Drop multiple files here",
+            "Upload plant reports to replace existing ones",
             accept_multiple_files=True,
-            help="Drop BOM, Float, Wiring/Cockpit stocks or VGL files. They are automatically classified by name."
+            help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
         )
         
-        uploaded_mappings = dl.classify_files(uploaded_files) if uploaded_files else {}
+        # Process uploads immediately, saving to disk and replacing older files
+        if uploaded_files:
+            uploaded_mappings = dl.classify_files(uploaded_files)
+            replaced_any = False
+            for category, uploaded_file in uploaded_mappings.items():
+                if category == 'BOM':
+                    try:
+                        parsed_bom = dl.load_bom(uploaded_file)
+                        dl.save_bom_to_db(parsed_bom)
+                        dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
+                        st.toast("💾 Master BOM replaced and saved to database!", icon="💾")
+                        replaced_any = True
+                    except Exception as e:
+                        st.error(f"Failed to parse uploaded BOM: {e}")
+                else:
+                    # Find old file of same category and delete it
+                    old_path = detected_files.get(category)
+                    if old_path and os.path.exists(old_path):
+                        try:
+                            os.remove(old_path)
+                        except Exception as e:
+                            st.error(f"Error removing old file: {e}")
+                    
+                    # Save new file to disk
+                    new_path = os.path.join(active_dir, uploaded_file.name)
+                    try:
+                        with open(new_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
+                        st.toast(f"✅ Replaced {category.replace('_',' ')} with {uploaded_file.name}", icon="✅")
+                        replaced_any = True
+                    except Exception as e:
+                        st.error(f"Error saving new file: {e}")
+            if replaced_any:
+                # Force re-scan and rerun to clear uploader state and refresh
+                detected_files = dl.detect_and_classify_files(active_dir)
+                st.rerun()
         
         st.markdown("##### Loaded Files Status")
         
+        # Check if database has BOM
+        db_bom_df = dl.load_bom_from_db()
+        
         # Populate loaded_data
         for category in all_categories:
-            is_uploaded = category in uploaded_mappings
             detected_path = detected_files.get(category)
             is_default_exists = detected_path is not None and os.path.exists(detected_path)
             
-            if is_uploaded:
-                status_icon = "🟢 Uploaded"
-                source_label = f"({uploaded_mappings[category].name})"
-                loaded_data[category] = uploaded_mappings[category]
-            elif is_default_exists:
-                status_icon = "🔌 Auto-loaded"
-                source_label = f"({os.path.basename(detected_path)})"
+            if category == 'BOM':
+                if db_bom_df is not None:
+                    loaded_data[category] = "DATABASE"
+                elif is_default_exists:
+                    loaded_data[category] = detected_path
+                # Skip status display for BOM as requested
+                continue
+            
+            uploaded_filename = dl.load_metadata(f"uploaded_{category}")
+            display_name = category.replace('_',' ').replace('VGL', 'VIN Generation')
+            
+            if is_default_exists:
                 loaded_data[category] = detected_path
+                if uploaded_filename and os.path.basename(detected_path) == uploaded_filename:
+                    status_icon = "🟢 Uploaded"
+                    source_label = f"({uploaded_filename})"
+                else:
+                    status_icon = "⚪ Pending for upload"
+                    source_label = "(No data uploaded)"
             else:
                 status_icon = "🔴 Missing"
-                source_label = ""
+                source_label = "(Pending for upload)"
                 
-            st.markdown(f"**{category.replace('_',' ')}**: {status_icon} <small style='color:#8896AB'>{source_label}</small>", unsafe_allow_html=True)
+            st.markdown(f"**{display_name}**: {status_icon} <small style='color:#8896AB'>{source_label}</small>", unsafe_allow_html=True)
             
     with col_engine:
         st.markdown("#### ⚙️ Engine Starting Stocks")
@@ -248,19 +538,38 @@ with config_expander:
             use_container_width=True,
             hide_index=True
         )
-        st.session_state.engine_df = edited_engine_df
+        if not edited_engine_df.equals(st.session_state.engine_df):
+            st.session_state.engine_df = edited_engine_df
+            dl.save_engine_stocks_to_db(edited_engine_df)
+            
+        st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+        if st.button("Reset Clearances to 0 (Shift Start)", type="secondary", use_container_width=True):
+            st.session_state.engine_df = pd.DataFrame(engine_default_data)
+            dl.save_engine_stocks_to_db(st.session_state.engine_df)
+            now_time = datetime.datetime.now()
+            st.session_state.last_reset_time = now_time
+            dl.save_metadata('last_reset_time', now_time.isoformat())
+            # Clear uploaded file registry in metadata
+            for cat in all_categories:
+                dl.save_metadata(f"uploaded_{cat}", "")
+            st.toast("🔄 Engine clearances and upload registries reset!", icon="🔄")
+            st.rerun()
 
 core_available = 'BOM' in loaded_data and 'FLOAT_REPORT' in loaded_data
 
 if not core_available:
-    st.warning("⚠️ Please ensure the **Master BOM** and **PPC Float Report** are available in the workspace or uploaded above to run the dashboard.")
+    st.warning("⚠️ Please ensure the **Master BOM** and **PPC Float Report** are available in the database/workspace or uploaded above to run the dashboard.")
     st.stop()
 
 # ----------------- PARSING & CALCULATING DATA -----------------
 try:
     with st.spinner("⏳ Parsing plant reports and running allocation calculations..."):
         # 1. Load BOM
-        bom_df = dl.load_bom(loaded_data['BOM'])
+        if loaded_data['BOM'] == 'DATABASE':
+            bom_df = dl.load_bom_from_db()
+        else:
+            bom_df = dl.load_bom(loaded_data['BOM'])
+            dl.save_bom_to_db(bom_df)
         
         # 2. Load Float Report
         float_df = dl.load_float_report(loaded_data['FLOAT_REPORT'])
@@ -398,14 +707,25 @@ def style_alloc_table(df):
     if df.empty:
         return df
     
+    is_dark = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+    
     def get_row_style(row):
         status = row.get('STATUS')
         if status == '✅ Ready for TCF':
-            return ['background-color: #F0FAF4; color: #166534'] * len(row)
+            if is_dark:
+                return ['background-color: #064E3B; color: #D1FAE5'] * len(row)
+            else:
+                return ['background-color: #F0FAF4; color: #166534'] * len(row)
         elif status == '🚫 Blocked':
-            return ['background-color: #FFF5F5; color: #B91C1C'] * len(row)
+            if is_dark:
+                return ['background-color: #7F1D1D; color: #FEE2E2'] * len(row)
+            else:
+                return ['background-color: #FFF5F5; color: #B91C1C'] * len(row)
         else:
-            return ['background-color: #FFFBEB; color: #92400E'] * len(row)
+            if is_dark:
+                return ['background-color: #78350F; color: #FEF3C7'] * len(row)
+            else:
+                return ['background-color: #FFFBEB; color: #92400E'] * len(row)
             
     return df.style.apply(get_row_style, axis=1)
 
@@ -427,26 +747,41 @@ def plot_stock_chart(start, true, final, title):
     y = np.arange(len(parts))
     width = 0.25
     
+    is_dark = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+    
+    # Theme configuration
+    bg_color = '#0F172A' if is_dark else '#F8FAFC'
+    face_color = '#1E293B' if is_dark else '#FFFFFF'
+    label_color = '#94A3B8' if is_dark else '#374A6B'
+    title_color = '#F8FAFC' if is_dark else '#1B2A4A'
+    border_color = '#334155' if is_dark else '#E8ECF1'
+    grid_color = '#334155' if is_dark else '#F1F5F9'
+    
     fig, ax = plt.subplots(figsize=(10, min(6, len(parts)*0.4 + 1.5)))
-    fig.patch.set_facecolor('#FAFBFC')
-    ax.set_facecolor('#FFFFFF')
+    fig.patch.set_facecolor(bg_color)
+    ax.set_facecolor(face_color)
     
-    ax.barh(y - width, start_vals, width, label='Shift Start Stock', color='#94A3B8', edgecolor='#FFFFFF', linewidth=0.5)
-    ax.barh(y, true_vals, width, label='True Current Stock', color='#0D9488', edgecolor='#FFFFFF', linewidth=0.5)
-    ax.barh(y + width, final_vals, width, label='Post-Alloc Virtual Stock', color='#22C55E', edgecolor='#FFFFFF', linewidth=0.5)
+    # Colors: Slate, Royal Blue / Light Indigo, Emerald Green
+    start_color = '#64748B' if is_dark else '#94A3B8'
+    true_color = '#6366F1' if is_dark else '#0D9488'
+    final_color = '#10B981' if is_dark else '#22C55E'
     
-    ax.set_ylabel('Part Numbers', fontsize=10, fontweight='semibold', color='#374A6B')
-    ax.set_xlabel('Quantity', fontsize=10, fontweight='semibold', color='#374A6B')
-    ax.set_title(title, fontsize=12, fontweight='bold', pad=15, color='#1B2A4A')
+    ax.barh(y - width, start_vals, width, label='Shift Start Stock', color=start_color, edgecolor=face_color, linewidth=0.5)
+    ax.barh(y, true_vals, width, label='True Current Stock', color=true_color, edgecolor=face_color, linewidth=0.5)
+    ax.barh(y + width, final_vals, width, label='Post-Alloc Virtual Stock', color=final_color, edgecolor=face_color, linewidth=0.5)
+    
+    ax.set_ylabel('Part Numbers', fontsize=10, fontweight='semibold', color=label_color)
+    ax.set_xlabel('Quantity', fontsize=10, fontweight='semibold', color=label_color)
+    ax.set_title(title, fontsize=12, fontweight='bold', pad=15, color=title_color)
     ax.set_yticks(y)
-    ax.set_yticklabels(parts, fontsize=8, color='#374A6B')
-    ax.tick_params(axis='x', colors='#6B7A99')
-    ax.legend(frameon=True, facecolor='#FFFFFF', edgecolor='#E8ECF1', fontsize=8)
+    ax.set_yticklabels(parts, fontsize=8, color=label_color)
+    ax.tick_params(axis='x', colors=label_color)
+    ax.legend(frameon=True, facecolor=face_color, edgecolor=border_color, labelcolor=label_color, fontsize=8)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#E8ECF1')
-    ax.spines['bottom'].set_color('#E8ECF1')
-    ax.grid(axis='x', color='#F1F5F9', linewidth=0.5)
+    ax.spines['left'].set_color(border_color)
+    ax.spines['bottom'].set_color(border_color)
+    ax.grid(axis='x', color=grid_color, linewidth=0.5)
     plt.tight_layout()
     st.pyplot(fig)
 
@@ -459,8 +794,8 @@ with tcf_tabs[0]:
     total_drops = len(tcf1_drops) if tcf1_drops is not None else 0
     
     kpi_cols = st.columns(5)
-    kpi_cols[0].metric("Shift Drops", f"{total_drops} cabs", help="Cabs built in TCF1 since shift start")
-    kpi_cols[1].metric("PBS Queue Depth", f"{len(tcf1_queue)} cabs", help="Active unblocked cabs in TCF1 PBS")
+    kpi_cols[0].metric("VIN Generation", f"{total_drops} cabs", help="Cabs built in TCF1 since shift start")
+    kpi_cols[1].metric("PBS Current Stock", f"{len(tcf1_queue)} cabs", help="Active unblocked cabs in TCF1 PBS")
     kpi_cols[2].metric("✅ Ready for TCF", f"{ready_count} cabs", delta=f"+{ready_count} alloc")
     kpi_cols[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count} cabs", delta=f"-{blocked_count} wait", delta_color="inverse")
     kpi_cols[4].metric("⚠️ Data/BOM Issue", f"{issue_count} cabs")
@@ -473,14 +808,8 @@ with tcf_tabs[0]:
         if tcf1_alloc_df.empty:
             st.info("No active cabs in TCF1 PBS queue.")
         else:
-            # Filter
-            q_status = st.multiselect(
-                "Filter queue by status:",
-                options=['✅ Ready for TCF', '🚫 Blocked', '⚠️ Unknown VC', '⚠️ BOM Incomplete'],
-                default=['✅ Ready for TCF', '🚫 Blocked', '⚠️ Unknown VC', '⚠️ BOM Incomplete'],
-                key="tcf1_q_filter"
-            )
-            filtered_df = tcf1_alloc_df[tcf1_alloc_df['STATUS'].isin(q_status)]
+            # Filter to show only Ready for TCF and Blocked statuses
+            filtered_df = tcf1_alloc_df[tcf1_alloc_df['STATUS'].isin(['✅ Ready for TCF', '🚫 Blocked'])].copy()
             
             search_biw = st.text_input("🔍 Quick Search by BIW Number:", key="tcf1_biw_search")
             if search_biw:
@@ -514,7 +843,7 @@ with tcf_tabs[0]:
                     "Part Number": part,
                     "Aggregate Type": agg_type,
                     "Shift Start Qty": st_qty,
-                    "Consumed (VGL drops)": cons_qty,
+                    "Consumed (Vin Generation)": cons_qty,
                     "True Current Stock": tc_qty,
                     "Allocated to PBS": alloc_qty,
                     "Post-Alloc Virtual Stock": fin_qty
@@ -575,7 +904,7 @@ with tcf_tabs[0]:
                     
                     # Graph
                     fig, ax = plt.subplots(figsize=(6, 3))
-                    fig.patch.set_facecolor('#FAFBFC')
+                    fig.patch.set_facecolor('#F8FAFC')
                     ax.set_facecolor('#FFFFFF')
                     ax.bar(block_counts['Part Number'][:5], block_counts['Blocked Cabs Count'][:5], color='#E53E3E', edgecolor='#FFFFFF', linewidth=0.5)
                     ax.tick_params(colors='#374A6B')
@@ -598,8 +927,8 @@ with tcf_tabs[1]:
     total_drops_tcf2 = len(tcf2_drops) if tcf2_drops is not None else 0
     
     kpi_cols_tcf2 = st.columns(5)
-    kpi_cols_tcf2[0].metric("Shift Drops", f"{total_drops_tcf2} cabs", help="Cabs built in TCF2 since shift start")
-    kpi_cols_tcf2[1].metric("PBS Queue Depth", f"{len(tcf2_queue)} cabs", help="Active unblocked cabs in TCF2 PBS")
+    kpi_cols_tcf2[0].metric("VIN Generation", f"{total_drops_tcf2} cabs", help="Cabs built in TCF2 since shift start")
+    kpi_cols_tcf2[1].metric("PBS Current Stock", f"{len(tcf2_queue)} cabs", help="Active unblocked cabs in TCF2 PBS")
     kpi_cols_tcf2[2].metric("✅ Ready for TCF", f"{ready_count_tcf2} cabs", delta=f"+{ready_count_tcf2} alloc")
     kpi_cols_tcf2[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count_tcf2} cabs", delta=f"-{blocked_count_tcf2} wait", delta_color="inverse")
     kpi_cols_tcf2[4].metric("⚠️ Data/BOM Issue", f"{issue_count_tcf2} cabs")
@@ -612,14 +941,8 @@ with tcf_tabs[1]:
         if tcf2_alloc_df.empty:
             st.info("No active cabs in TCF2 PBS queue.")
         else:
-            # Filter
-            q_status_tcf2 = st.multiselect(
-                "Filter queue by status:",
-                options=['✅ Ready for TCF', '🚫 Blocked', '⚠️ Unknown VC', '⚠️ BOM Incomplete'],
-                default=['✅ Ready for TCF', '🚫 Blocked', '⚠️ Unknown VC', '⚠️ BOM Incomplete'],
-                key="tcf2_q_filter"
-            )
-            filtered_df_tcf2 = tcf2_alloc_df[tcf2_alloc_df['STATUS'].isin(q_status_tcf2)]
+            # Filter to show only Ready for TCF and Blocked statuses
+            filtered_df_tcf2 = tcf2_alloc_df[tcf2_alloc_df['STATUS'].isin(['✅ Ready for TCF', '🚫 Blocked'])].copy()
             
             search_biw_tcf2 = st.text_input("🔍 Quick Search by BIW Number:", key="tcf2_biw_search")
             if search_biw_tcf2:
@@ -688,7 +1011,7 @@ with tcf_tabs[1]:
                     
                     # Graph
                     fig, ax = plt.subplots(figsize=(6, 3))
-                    fig.patch.set_facecolor('#FAFBFC')
+                    fig.patch.set_facecolor('#F8FAFC')
                     ax.set_facecolor('#FFFFFF')
                     ax.bar(block_counts_tcf2['Part Number'][:5], block_counts_tcf2['Blocked Cabs Count'][:5], color='#E53E3E', edgecolor='#FFFFFF', linewidth=0.5)
                     ax.tick_params(colors='#374A6B')
@@ -772,16 +1095,30 @@ with tcf_tabs[2]:
         def style_shortage_table(df):
             if df.empty:
                 return df
+            is_dark = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+            
             def get_row_style(row):
                 status = row.get('Status')
                 if status.startswith('🚫'):
-                    return ['background-color: #FFF5F5; color: #B91C1C'] * len(row)
+                    if is_dark:
+                        return ['background-color: #7F1D1D; color: #FEE2E2'] * len(row)
+                    else:
+                        return ['background-color: #FFF5F5; color: #B91C1C'] * len(row)
                 elif status.startswith('⚠️'):
-                    return ['background-color: #F8FAFC; color: #6B7A99'] * len(row)
+                    if is_dark:
+                        return ['background-color: #334155; color: #94A3B8'] * len(row)
+                    else:
+                        return ['background-color: #F8FAFC; color: #6B7A99'] * len(row)
                 elif status.startswith('🟠'):
-                    return ['background-color: #FFFBEB; color: #92400E'] * len(row)
+                    if is_dark:
+                        return ['background-color: #78350F; color: #FEF3C7'] * len(row)
+                    else:
+                        return ['background-color: #FFFBEB; color: #92400E'] * len(row)
                 else:
-                    return ['background-color: #F0FAF4; color: #166534'] * len(row)
+                    if is_dark:
+                        return ['background-color: #064E3B; color: #D1FAE5'] * len(row)
+                    else:
+                        return ['background-color: #F0FAF4; color: #166534'] * len(row)
             return df.style.apply(get_row_style, axis=1)
             
         st.dataframe(
@@ -808,3 +1145,40 @@ with tcf_tabs[2]:
                 use_container_width=True,
                 hide_index=True
             )
+
+# ----------------- BOTTOM DATA INTEGRITY REMARKS (Unknown VC / BOM Incomplete) -----------------
+st.markdown("<br><hr>", unsafe_allow_html=True)
+st.markdown("### ⚠️ Data Integrity Remarks & Action Items (Missing BOM / Unknown VC)")
+
+# Extract rows with data/BOM issues
+data_issues_tcf1 = tcf1_alloc_df[tcf1_alloc_df['STATUS'].isin(['⚠️ Unknown VC', '⚠️ BOM Incomplete'])].copy() if not tcf1_alloc_df.empty else pd.DataFrame()
+data_issues_tcf2 = tcf2_alloc_df[tcf2_alloc_df['STATUS'].isin(['⚠️ Unknown VC', '⚠️ BOM Incomplete'])].copy() if not tcf2_alloc_df.empty else pd.DataFrame()
+
+# Standardize columns to match and concatenate
+if not data_issues_tcf1.empty:
+    data_issues_tcf1['Line'] = 'TCF1'
+if not data_issues_tcf2.empty:
+    data_issues_tcf2['Line'] = 'TCF2'
+
+combined_issues = pd.concat([data_issues_tcf1, data_issues_tcf2], ignore_index=True)
+
+if combined_issues.empty:
+    st.success("🎉 All cabs in the buffer queue have valid Vehicle Codes and complete Master BOM definitions!")
+else:
+    st.warning(f"⚠️ Found {len(combined_issues)} cabs with missing BOM configurations or unknown Vehicle Codes. Please update the Master BOM database.")
+    
+    display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Line', 'PBS LIFT']
+    
+    # Theme-aware coloring for the issues table
+    is_dark = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+    def style_issues_table(df):
+        if is_dark:
+            return df.style.apply(lambda row: ['background-color: #451a03; color: #fef3c7'] * len(row), axis=1)
+        else:
+            return df.style.apply(lambda row: ['background-color: #fffbeb; color: #92400E'] * len(row), axis=1)
+            
+    st.dataframe(
+        style_issues_table(combined_issues[display_cols]),
+        use_container_width=True,
+        hide_index=True
+    )

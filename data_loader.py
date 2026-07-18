@@ -5,6 +5,7 @@ import re
 import os
 import openpyxl
 import pyxlsb
+import sqlite3
 
 def clean_part_number(val):
     if pd.isna(val):
@@ -381,3 +382,136 @@ def detect_and_classify_files(directory_path):
                 classifications['TCF1_WIRING_STOCK'] = path
                 
     return classifications
+
+DB_PATH = r"d:\Planner Dashboard\clear_to_build.db"
+
+def init_db():
+    """Initializes the database and table if they do not exist."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bom_details (
+            short_vehicle_code TEXT PRIMARY KEY,
+            front_wiring TEXT,
+            cockpit TEXT,
+            engine TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_bom_to_db(df):
+    """Overwrites the database table with the provided BOM DataFrame."""
+    if df is None or df.empty:
+        return
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    # Convert dataframe to exactly match the database columns
+    db_df = df.copy()
+    db_df.columns = ['short_vehicle_code', 'front_wiring', 'cockpit', 'engine']
+    db_df.to_sql('bom_details', conn, if_exists='replace', index=False)
+    conn.commit()
+    conn.close()
+
+def load_bom_from_db():
+    """Loads the BOM data from the database. Returns None if empty or table does not exist."""
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM bom_details")
+        count = cursor.fetchone()[0]
+        if count == 0:
+            return None
+        df = pd.read_sql("SELECT * FROM bom_details", conn)
+        # Rename back to the standard application columns
+        df.rename(columns={
+            'short_vehicle_code': 'Short Vehicle Code',
+            'front_wiring': 'Front Wiring',
+            'cockpit': 'Cockpit',
+            'engine': 'Engine'
+        }, inplace=True)
+        return df
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+def init_engine_db():
+    """Initializes the engine stocks table if it does not exist."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS engine_stocks (
+            tcf_line TEXT,
+            engine_part_no TEXT PRIMARY KEY,
+            model TEXT,
+            ta_code TEXT,
+            clearance_qty INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_engine_stocks_to_db(df):
+    """Saves the edited engine stocks DataFrame to the DB."""
+    if df is None or df.empty:
+        return
+    init_engine_db()
+    conn = sqlite3.connect(DB_PATH)
+    db_df = df.copy()
+    db_df.columns = ['tcf_line', 'engine_part_no', 'model', 'ta_code', 'clearance_qty']
+    db_df.to_sql('engine_stocks', conn, if_exists='replace', index=False)
+    conn.commit()
+    conn.close()
+
+def load_engine_stocks_from_db():
+    """Loads engine stocks from the DB. Returns None if empty or table does not exist."""
+    init_engine_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM engine_stocks")
+        count = cursor.fetchone()[0]
+        if count == 0:
+            return None
+        df = pd.read_sql("SELECT * FROM engine_stocks", conn)
+        df.columns = ["TCF Line", "Engine Part No", "Model", "TA Code", "Clearance After 6:30AM"]
+        return df
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+def init_metadata_db():
+    """Initializes the metadata table if it does not exist."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+    conn.close()
+
+def save_metadata(key, value):
+    """Saves a metadata key-value pair to the database."""
+    init_metadata_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, str(value)))
+    conn.commit()
+    conn.close()
+
+def load_metadata(key, default=None):
+    """Loads a metadata value by key from the database. Returns default if not found."""
+    init_metadata_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+        return default
+    except Exception:
+        return default
+    finally:
+        conn.close()
