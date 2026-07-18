@@ -18,50 +18,110 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Premium styling override
+# Premium White Theme Styling
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     
     html, body, [class*="css"] {
-        font-family: 'Outfit', sans-serif;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Force light/white background globally */
+    .stApp {
+        background-color: #FAFBFC;
+    }
+    
+    section[data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        border-right: 1px solid #E8ECF1;
     }
     
     .main-title {
-        font-size: 2.8rem;
-        font-weight: 700;
-        margin-bottom: 0.2rem;
+        font-size: 2.4rem;
+        font-weight: 800;
+        color: #1B2A4A;
+        margin-bottom: 0.1rem;
+        letter-spacing: -0.03em;
     }
     
     .subtitle {
-        color: #64748B;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
+        color: #6B7A99;
+        font-size: 1.05rem;
+        font-weight: 400;
+        margin-bottom: 1.8rem;
     }
     
     .card-ready {
-        background-color: #ECFDF5;
-        border-left: 5px solid #10B981;
+        background-color: #F0FAF4;
+        border-left: 4px solid #22C55E;
         padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     
     .card-blocked {
-        background-color: #FEF2F2;
-        border-left: 5px solid #EF4444;
+        background-color: #FFF5F5;
+        border-left: 4px solid #EF4444;
         padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     
-    /* Theme-adaptive Metric Card Style (High Contrast) */
+    /* Metric Cards — white cards with subtle border and shadow */
     div[data-testid="stMetric"] {
-        background-color: rgba(128, 128, 128, 0.08);
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        background-color: #FFFFFF;
+        border: 1px solid #E8ECF1;
+        padding: 1.1rem 1rem;
+        border-radius: 12px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+    }
+    
+    div[data-testid="stMetric"] label {
+        color: #6B7A99 !important;
+        font-weight: 500 !important;
+        font-size: 0.82rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #1B2A4A !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Tabs styling */
+    button[data-baseweb="tab"] {
+        color: #6B7A99 !important;
+        font-weight: 500 !important;
+    }
+    
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #0D9488 !important;
+        border-bottom-color: #0D9488 !important;
+    }
+    
+    /* Expander styling */
+    details[data-testid="stExpander"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E8ECF1;
+        border-radius: 12px;
+    }
+    
+    /* Headings inside tabs */
+    h3 {
+        color: #1B2A4A !important;
+        font-weight: 700 !important;
+    }
+    
+    h4 {
+        color: #374A6B !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Horizontal rules */
+    hr {
+        border-color: #E8ECF1 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -164,11 +224,11 @@ with config_expander:
                 status_icon = "🔴 Missing"
                 source_label = ""
                 
-            st.markdown(f"**{category.replace('_',' ')}**: {status_icon} <small style='color:gray'>{source_label}</small>", unsafe_allow_html=True)
+            st.markdown(f"**{category.replace('_',' ')}**: {status_icon} <small style='color:#8896AB'>{source_label}</small>", unsafe_allow_html=True)
             
     with col_engine:
         st.markdown("#### ⚙️ Engine Starting Stocks")
-        st.markdown("<small style='color:gray'>Edit clearance counts directly in the table below (Default: 0)</small>", unsafe_allow_html=True)
+        st.markdown("<small style='color:#8896AB'>Edit clearance counts directly in the table below (Default: 0)</small>", unsafe_allow_html=True)
         
         edited_engine_df = st.data_editor(
             st.session_state.engine_df,
@@ -341,11 +401,11 @@ def style_alloc_table(df):
     def get_row_style(row):
         status = row.get('STATUS')
         if status == '✅ Ready for TCF':
-            return ['background-color: #ECFDF5; color: #065F46'] * len(row)
+            return ['background-color: #F0FAF4; color: #166534'] * len(row)
         elif status == '🚫 Blocked':
-            return ['background-color: #FEF2F2; color: #991B1B'] * len(row)
+            return ['background-color: #FFF5F5; color: #B91C1C'] * len(row)
         else:
-            return ['background-color: #FEF3C7; color: #92400E'] * len(row)
+            return ['background-color: #FFFBEB; color: #92400E'] * len(row)
             
     return df.style.apply(get_row_style, axis=1)
 
@@ -368,21 +428,25 @@ def plot_stock_chart(start, true, final, title):
     width = 0.25
     
     fig, ax = plt.subplots(figsize=(10, min(6, len(parts)*0.4 + 1.5)))
+    fig.patch.set_facecolor('#FAFBFC')
+    ax.set_facecolor('#FFFFFF')
     
-    ax.barh(y - width, start_vals, width, label='Shift Start Stock', color='#94A3B8')
-    ax.barh(y, true_vals, width, label='True Current Stock', color='#38BDF8')
-    ax.barh(y + width, final_vals, width, label='Post-Alloc Virtual Stock', color='#34D399')
+    ax.barh(y - width, start_vals, width, label='Shift Start Stock', color='#94A3B8', edgecolor='#FFFFFF', linewidth=0.5)
+    ax.barh(y, true_vals, width, label='True Current Stock', color='#0D9488', edgecolor='#FFFFFF', linewidth=0.5)
+    ax.barh(y + width, final_vals, width, label='Post-Alloc Virtual Stock', color='#22C55E', edgecolor='#FFFFFF', linewidth=0.5)
     
-    ax.set_ylabel('Part Numbers', fontsize=10, fontweight='semibold')
-    ax.set_xlabel('Quantity', fontsize=10, fontweight='semibold')
-    ax.set_title(title, fontsize=12, fontweight='bold', pad=15)
+    ax.set_ylabel('Part Numbers', fontsize=10, fontweight='semibold', color='#374A6B')
+    ax.set_xlabel('Quantity', fontsize=10, fontweight='semibold', color='#374A6B')
+    ax.set_title(title, fontsize=12, fontweight='bold', pad=15, color='#1B2A4A')
     ax.set_yticks(y)
-    ax.set_yticklabels(parts, fontsize=8)
-    ax.legend(frameon=True, facecolor='#FFFFFF', edgecolor='#E2E8F0')
+    ax.set_yticklabels(parts, fontsize=8, color='#374A6B')
+    ax.tick_params(axis='x', colors='#6B7A99')
+    ax.legend(frameon=True, facecolor='#FFFFFF', edgecolor='#E8ECF1', fontsize=8)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#CBD5E1')
-    ax.spines['bottom'].set_color('#CBD5E1')
+    ax.spines['left'].set_color('#E8ECF1')
+    ax.spines['bottom'].set_color('#E8ECF1')
+    ax.grid(axis='x', color='#F1F5F9', linewidth=0.5)
     plt.tight_layout()
     st.pyplot(fig)
 
@@ -511,9 +575,16 @@ with tcf_tabs[0]:
                     
                     # Graph
                     fig, ax = plt.subplots(figsize=(6, 3))
-                    ax.bar(block_counts['Part Number'][:5], block_counts['Blocked Cabs Count'][:5], color='#EF4444')
-                    ax.set_ylabel('Blocked Cabs')
-                    ax.set_title('Top 5 Bottleneck Parts (TCF1)')
+                    fig.patch.set_facecolor('#FAFBFC')
+                    ax.set_facecolor('#FFFFFF')
+                    ax.bar(block_counts['Part Number'][:5], block_counts['Blocked Cabs Count'][:5], color='#E53E3E', edgecolor='#FFFFFF', linewidth=0.5)
+                    ax.tick_params(colors='#374A6B')
+                    ax.spines['top'].set_visible(False)
+                    ax.spines['right'].set_visible(False)
+                    ax.spines['left'].set_color('#E8ECF1')
+                    ax.spines['bottom'].set_color('#E8ECF1')
+                    ax.set_title('Top 5 Bottleneck Parts (TCF1)', color='#1B2A4A', fontweight='bold')
+                    ax.set_ylabel('Blocked Cabs', color='#374A6B')
                     st.pyplot(fig)
                 else:
                     st.info("No specific parts extracted from blocking reasons.")
@@ -617,9 +688,16 @@ with tcf_tabs[1]:
                     
                     # Graph
                     fig, ax = plt.subplots(figsize=(6, 3))
-                    ax.bar(block_counts_tcf2['Part Number'][:5], block_counts_tcf2['Blocked Cabs Count'][:5], color='#EF4444')
-                    ax.set_ylabel('Blocked Cabs')
-                    ax.set_title('Top 5 Bottleneck Parts (TCF2)')
+                    fig.patch.set_facecolor('#FAFBFC')
+                    ax.set_facecolor('#FFFFFF')
+                    ax.bar(block_counts_tcf2['Part Number'][:5], block_counts_tcf2['Blocked Cabs Count'][:5], color='#E53E3E', edgecolor='#FFFFFF', linewidth=0.5)
+                    ax.tick_params(colors='#374A6B')
+                    ax.spines['top'].set_visible(False)
+                    ax.spines['right'].set_visible(False)
+                    ax.spines['left'].set_color('#E8ECF1')
+                    ax.spines['bottom'].set_color('#E8ECF1')
+                    ax.set_title('Top 5 Bottleneck Parts (TCF2)', color='#1B2A4A', fontweight='bold')
+                    ax.set_ylabel('Blocked Cabs', color='#374A6B')
                     st.pyplot(fig)
                 else:
                     st.info("No specific parts extracted from blocking reasons.")
@@ -697,13 +775,13 @@ with tcf_tabs[2]:
             def get_row_style(row):
                 status = row.get('Status')
                 if status.startswith('🚫'):
-                    return ['background-color: #FEF2F2; color: #991B1B'] * len(row)
+                    return ['background-color: #FFF5F5; color: #B91C1C'] * len(row)
                 elif status.startswith('⚠️'):
-                    return ['background-color: #F8FAFC; color: #64748B'] * len(row)
+                    return ['background-color: #F8FAFC; color: #6B7A99'] * len(row)
                 elif status.startswith('🟠'):
                     return ['background-color: #FFFBEB; color: #92400E'] * len(row)
                 else:
-                    return ['background-color: #ECFDF5; color: #065F46'] * len(row)
+                    return ['background-color: #F0FAF4; color: #166534'] * len(row)
             return df.style.apply(get_row_style, axis=1)
             
         st.dataframe(

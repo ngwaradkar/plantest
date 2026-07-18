@@ -10,8 +10,7 @@ __pycache__/
 *.xlsb
 *.csv
 
-# Streamlit config and logs
-.streamlit/
+# Streamlit logs (but keep config.toml for theming)
 *.log
 
 # Workspace/IDE folders
