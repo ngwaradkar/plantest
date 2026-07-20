@@ -354,52 +354,74 @@ def classify_files(uploaded_files):
 
 def detect_and_classify_files(directory_path):
     """
-    Scans directory_path and classifies all xls, xlsx, xlsb files by their names.
+    Scans directory_path (including subdirectories like 'Float reports/') and classifies all xls, xlsx, xlsb files by their names.
     Returns a dict mapping categories to their absolute file paths.
     """
     if not os.path.exists(directory_path) or not os.path.isdir(directory_path):
         return {}
         
     classifications = {}
+    file_entries = []
     
-    # List files in directory
     try:
-        filenames = os.listdir(directory_path)
+        # First scan files directly in directory_path
+        for f in os.listdir(directory_path):
+            p = os.path.join(directory_path, f)
+            if os.path.isfile(p):
+                file_entries.append((f, p))
+                
+        # Then scan subdirectories (e.g., Float reports, TEST)
+        for f_dir in os.listdir(directory_path):
+            p_dir = os.path.join(directory_path, f_dir)
+            if os.path.isdir(p_dir) and not f_dir.startswith('.') and f_dir != '__pycache__':
+                for root, dirs, files in os.walk(p_dir):
+                    for f in files:
+                        file_entries.append((f, os.path.join(root, f)))
     except Exception:
         return {}
         
-    for name in filenames:
-        path = os.path.join(directory_path, name)
-        if not os.path.isfile(path):
-            continue
-            
+    for name, path in file_entries:
         ext = os.path.splitext(name.lower())[1]
         if ext not in ['.xlsx', '.xls', '.xlsb', '.csv']:
             continue
             
         name_lower = name.lower()
         
+        def set_cat(cat, p):
+            if cat not in classifications:
+                classifications[cat] = p
+            else:
+                existing = classifications[cat]
+                # Prefer Float reports/ and root over TEST folder
+                if 'test' in existing.lower() and 'test' not in p.lower():
+                    classifications[cat] = p
+                elif 'float reports' in p.lower() and 'float reports' not in existing.lower():
+                    classifications[cat] = p
+
         if 'bom' in name_lower:
-            classifications['BOM'] = path
+            set_cat('BOM', path)
         elif 'float' in name_lower:
-            classifications['FLOAT_REPORT'] = path
+            if 'paint' in name_lower:
+                set_cat('FLOAT_PAINT_SUMMARY', path)
+            else:
+                set_cat('FLOAT_REPORT', path)
         elif 'vgl' in name_lower or 'vehicle_generation' in name_lower or 'generation_list' in name_lower:
             if 'tcf2' in name_lower or 'tcf_2' in name_lower:
-                classifications['TCF2_VGL'] = path
+                set_cat('TCF2_VGL', path)
             else:
-                classifications['TCF1_VGL'] = path
+                set_cat('TCF1_VGL', path)
         elif 'cockpit' in name_lower:
             if 'tcf2' in name_lower or 'tcf-2' in name_lower or 'tcf_2' in name_lower or 'harrier' in name_lower or 'safari' in name_lower:
-                classifications['TCF2_COCKPIT_STOCK'] = path
+                set_cat('TCF2_COCKPIT_STOCK', path)
             elif 'nova' in name_lower:
-                classifications['TCF1_NOVA_COCKPIT_STOCK'] = path
+                set_cat('TCF1_NOVA_COCKPIT_STOCK', path)
             else:
-                classifications['TCF1_ALTROZ_COCKPIT_STOCK'] = path
+                set_cat('TCF1_ALTROZ_COCKPIT_STOCK', path)
         elif 'wiring' in name_lower or 'harness' in name_lower:
             if 'tcf2' in name_lower or 'tcf-2' in name_lower or 'tcf_2' in name_lower:
-                classifications['TCF2_WIRING_STOCK'] = path
+                set_cat('TCF2_WIRING_STOCK', path)
             else:
-                classifications['TCF1_WIRING_STOCK'] = path
+                set_cat('TCF1_WIRING_STOCK', path)
                 
     return classifications
 

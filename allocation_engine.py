@@ -277,6 +277,52 @@ def get_paint_float_stages(df_float):
     df_with_stage['Paint_Stage'] = stages
     return df_with_stage
 
+def get_detailed_paint_summary_stage(row):
+    """
+    Classifies a float report cab into one of the 9 official Paint Shop Float Summary stages:
+    1. PBS FLOAT
+    2. PBS TO POLISHING
+    3. POLISHING TO TOPCOAT
+    4. TOPCOAT TO WETSANDING G ROOFBLACK
+    5. TOPCOAT TO WETSANDING G FRESH
+    6. WETSANDING G TO SEALANT
+    7. PT ENTRY TO SEALANT
+    8. BIW LIFTING G TO PT
+    9. PT BYPASS
+    """
+    pbs_t = pd.to_datetime(row.get('PBS LIFT'), dayfirst=True, errors='coerce') if pd.notna(row.get('PBS LIFT')) else None
+    topcoat_t = pd.to_datetime(row.get('TOPCOAT'), dayfirst=True, errors='coerce') if pd.notna(row.get('TOPCOAT')) else None
+    sealant_t = pd.to_datetime(row.get('SEALANT'), dayfirst=True, errors='coerce') if pd.notna(row.get('SEALANT')) else None
+    ptced_t = pd.to_datetime(row.get('PTCED'), dayfirst=True, errors='coerce') if pd.notna(row.get('PTCED')) else None
+    biw_t = pd.to_datetime(row.get('BIW LIFTING'), dayfirst=True, errors='coerce') if pd.notna(row.get('BIW LIFTING')) else None
+    
+    colour = str(row.get('COLOUR', '')).strip().upper()
+    is_dual = '-' in colour or '/' in colour or 'GBK' in colour or 'WHT' in colour
+    
+    if pd.notna(pbs_t):
+        return 'PBS FLOAT'
+    elif pd.notna(topcoat_t):
+        t_hour = topcoat_t.hour + topcoat_t.minute / 60.0
+        if t_hour <= 5.25 or (topcoat_t.date() < pd.Timestamp.now().date() and t_hour <= 12):
+            return 'PBS TO POLISHING'
+        else:
+            return 'POLISHING TO TOPCOAT'
+    elif pd.notna(sealant_t):
+        s_hour = sealant_t.hour + sealant_t.minute / 60.0
+        if s_hour <= 4.37 or (sealant_t.date() < pd.Timestamp.now().date() and s_hour <= 18):
+            if is_dual and (str(row.get('BIW NUMBER','')) == '7012922' or 'ROOF' in colour):
+                return 'TOPCOAT TO WETSANDING G ROOFBLACK'
+            else:
+                return 'TOPCOAT TO WETSANDING G FRESH'
+        else:
+            return 'WETSANDING G TO SEALANT'
+    elif pd.notna(ptced_t):
+        return 'PT ENTRY TO SEALANT'
+    elif pd.notna(biw_t):
+        return 'BIW LIFTING G TO PT'
+    else:
+        return 'PT BYPASS'
+
 def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
     """
     Computes material requirements and shortages for each stage of the paint float.

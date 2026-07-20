@@ -22,7 +22,7 @@ if 'theme' not in st.session_state:
 
 # Set page config
 st.set_page_config(
-    page_title="PBS Clear-to-Build Dashboard",
+    page_title="TCF1 & TCF2 VIN generation PPC Dashboard",
     page_icon="🚗",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -141,10 +141,12 @@ st.markdown(f"""
     div[data-testid="stMetric"] {{
         background-color: var(--card-bg) !important;
         border: 1px solid var(--border-color) !important;
-        padding: 1.25rem 1.5rem !important;
+        padding: 1rem 1.25rem !important;
         border-radius: 12px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        min-width: 0 !important;
+        width: 100% !important;
     }}
     div[data-testid="stMetric"]:hover {{
         transform: translateY(-4px) !important;
@@ -176,11 +178,13 @@ st.markdown(f"""
     
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
         color: var(--text-primary) !important;
-        font-weight: 800 !important;
-        font-size: 1.55rem !important;
-        letter-spacing: -0.025em !important;
-        word-break: break-word !important;
+        font-weight: 750 !important;
+        font-size: 1.15rem !important;
+        line-height: 1.3 !important;
+        letter-spacing: -0.015em !important;
+        word-break: normal !important;
         white-space: normal !important;
+        overflow: visible !important;
     }}
     
     /* Segmented control for tabs */
@@ -328,7 +332,7 @@ st.markdown(f"""
 with col_title_card:
     st.markdown("""
     <div style="background: linear-gradient(135deg, var(--accent-color) 0%, #06B6D4 100%); padding: 1.8rem 2.2rem; border-radius: 16px; margin-bottom: 2rem; color: white; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);">
-        <h1 style="color: white !important; font-weight: 850; margin: 0; font-size: 2.2rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif;">Clear to Build (CTB) Allocation Dashboard</h1>
+        <h1 style="color: white !important; font-weight: 850; margin: 0; font-size: 2.2rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif;">TCF1 & TCF2 VIN Generation PPC Dashboard</h1>
         <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0 0 0; font-size: 1.05rem; font-weight: 400; font-family: 'Inter', sans-serif;">Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>
     </div>
     """, unsafe_allow_html=True)
@@ -515,6 +519,7 @@ with config_expander:
             st.session_state.last_processed_upload_ids = uploaded_ids
             if replaced_any:
                 detected_files = dl.detect_and_classify_files(active_dir)
+                st.session_state.run_report = False
                 st.rerun()
         
         st.markdown("##### Loaded Files Status")
@@ -595,6 +600,7 @@ with config_expander:
         )
         if not edited_engine_df.equals(st.session_state.engine_df):
             st.session_state.engine_df = edited_engine_df
+            st.session_state.run_report = False
             try:
                 dl.save_engine_stocks_to_db(edited_engine_df)
             except Exception:
@@ -613,21 +619,45 @@ with config_expander:
                 dl.save_metadata('last_reset_time', now_time.isoformat())
             except Exception:
                 pass
-            # Clear uploaded file registry in metadata and session state buffers
+            # Clear uploaded file registry in metadata and session state buffers (except BOM which is constant)
             for cat in all_categories:
+                if cat == 'BOM':
+                    continue  # Master BOM details remain constant all the time
                 try:
                     dl.save_metadata(f"uploaded_{cat}", "")
                 except Exception:
                     pass
                 if f"buffer_{cat}" in st.session_state:
                     del st.session_state[f"buffer_{cat}"]
-            st.toast("🔄 Engine clearances and upload registries reset!", icon="🔄")
+            st.session_state.run_report = False
+            st.toast("🔄 Engine clearances and daily report upload registries reset (Master BOM preserved)!", icon="🔄")
             st.rerun()
 
 core_available = 'BOM' in loaded_data and 'FLOAT_REPORT' in loaded_data
 
 if not core_available:
     st.warning("⚠️ Please ensure the **Master BOM** and **PPC Float Report** are available in the database/workspace or uploaded above to run the dashboard.")
+    st.stop()
+
+# ----------------- GENERATE REPORT CONTROL -----------------
+if 'run_report' not in st.session_state:
+    st.session_state.run_report = False
+
+st.markdown("---")
+col_gen1, col_gen2 = st.columns([1.5, 3.5])
+with col_gen1:
+    btn_label = "🚀 Generate Report" if not st.session_state.run_report else "🔄 Re-generate Report"
+    if st.button(btn_label, type="primary", use_container_width=True, key="btn_generate_report_control"):
+        st.session_state.run_report = True
+        st.rerun()
+
+with col_gen2:
+    if not st.session_state.run_report:
+        st.info("💡 Files or engine data have been updated. Click **'🚀 Generate Report'** on the left to run calculations.")
+    else:
+        st.caption("✅ Report is generated. Uploading new files or updating engine clearances will pause auto-runs until you click **'Re-generate Report'**.")
+
+if not st.session_state.run_report:
     st.stop()
 
 # ----------------- PARSING & CALCULATING DATA -----------------
@@ -752,11 +782,13 @@ try:
         tcf1_alloc_df = pd.DataFrame(tcf1_alloc)
         tcf2_alloc_df = pd.DataFrame(tcf2_alloc)
         
-        # Add Model column by mapping Engine Part No to Model
+        # Add Model column by mapping Engine Part No to Model & Line
         if 'engine_df' in st.session_state and not st.session_state.engine_df.empty:
             engine_to_model = dict(zip(st.session_state.engine_df['Engine Part No'].astype(str).str.strip(), st.session_state.engine_df['Model']))
+            engine_to_line = dict(zip(st.session_state.engine_df['Engine Part No'].astype(str).str.strip(), st.session_state.engine_df['TCF Line']))
         else:
             engine_to_model = {item['Engine Part No']: item['Model'] for item in engine_default_data}
+            engine_to_line = {item['Engine Part No']: item['TCF Line'] for item in engine_default_data}
             
         # Helper function to map model name dynamically with Tayrona override
         def map_row_model(df):
@@ -806,14 +838,157 @@ try:
         
         shortage_report_df = ae.calculate_stagewise_shortage(float_stages_df, bom_df, combined_true_stocks)
 
+        # Build temp_float_df with stage, model, and engine mapping for all downstream views
+        def get_summary_product_to_model(prod_name):
+            prod = str(prod_name).strip().upper()
+            if 'HORNBILL' in prod:
+                return 'PUNCH'
+            elif 'NOVA' in prod:
+                return 'PUNCH.EV'
+            elif 'ETURNA' in prod:
+                return 'HARRIER.EV'
+            elif 'GRAVITAS' in prod:
+                return 'SAFARI'
+            elif 'Q5' in prod:
+                return 'HARRIER'
+            elif 'TAYRONA' in prod:
+                return 'SAFARI.EV'
+            return 'UNKNOWN'
+            
+        def get_row_paint_stage(row):
+            return ae.get_detailed_paint_summary_stage(row)
+
+        if float_df is not None and not float_df.empty:
+            temp_float_df = float_df.copy()
+            temp_float_df['Model_Mapped'] = temp_float_df['PRODUCT'].apply(get_summary_product_to_model)
+            temp_float_df['Stage'] = temp_float_df.apply(get_row_paint_stage, axis=1)
+            if bom_df is not None and not bom_df.empty and 'VEHICLE CODE' in temp_float_df.columns:
+                vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
+                temp_float_df['Engine_Part'] = temp_float_df['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
+        else:
+            temp_float_df = pd.DataFrame()
+
+        ready_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 0
+        blocked_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf1_alloc_df.empty else 0
+        ready_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
+        blocked_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf2_alloc_df.empty else 0
+
 except Exception as e:
     st.error(f"❌ Error while running calculations: {e}")
     st.info("Please verify that the uploaded files match the required structure and columns.")
     st.stop()
 
 # ----------------- MAIN PANEL LAYOUT -----------------
-# Toggle between TCF1, TCF2, and Combined Summary
-tcf_tabs = st.tabs(["🏭 TCF 1 Line (Altroz/Punch/Nova)", "🏭 TCF 2 Line (Harrier/Safari)", "📊 Combined Summary & Material Shortages", "📈 Summary Report & Excel Download"])
+# Helper function to render Total Float Details & Cab Search view
+def render_total_float_details_view(float_df, default_line="All"):
+    st.markdown("### 🔍 Total Float Details & Cab Search")
+    st.markdown("""
+        Search and filter cabs across the entire Paint Shop float using **BIW Number**, **Vehicle Code (VC)**, and **Paint Stage dropdown options**.
+    """)
+    
+    if float_df is None or float_df.empty:
+        st.info("Please load Paint Float report data in the Control Panel to view float details.")
+        return
+        
+    df_search = float_df.copy()
+    if 'Stage' not in df_search.columns:
+        df_search['Stage'] = df_search.apply(ae.get_detailed_paint_summary_stage, axis=1)
+        
+    # Search & Filter Controls
+    c1, c2, c3, c4, c5 = st.columns([2, 2, 2.5, 2, 2])
+    
+    with c1:
+        biw_query = st.text_input("🔍 BIW Number:", placeholder="e.g. 5012617", key=f"biw_search_{default_line}")
+    with c2:
+        vc_query = st.text_input("🚙 Vehicle Code (VC):", placeholder="e.g. 54972824A", key=f"vc_search_{default_line}")
+    with c3:
+        stages_available = ['All Stages'] + sorted(list(df_search['Stage'].dropna().unique()))
+        selected_stage = st.selectbox("🎨 Paint Stage Filter:", options=stages_available, key=f"stage_filter_{default_line}")
+    with c4:
+        shop_options = ['All Shops', 'TCF1', 'TCF2']
+        default_idx = shop_options.index(default_line) if default_line in shop_options else 0
+        selected_shop = st.selectbox("🏭 Shop / Line Filter:", options=shop_options, index=default_idx, key=f"shop_filter_{default_line}")
+    with c5:
+        hold_filter = st.selectbox("🛑 Quality Hold Filter:", options=['All Cabs', 'Quality Hold Only', 'Clear Cabs Only'], key=f"hold_filter_{default_line}")
+        
+    # Apply filtering logic
+    if biw_query.strip():
+        df_search = df_search[df_search['BIW NUMBER'].astype(str).str.contains(biw_query.strip(), case=False, na=False)]
+    if vc_query.strip():
+        df_search = df_search[df_search['VEHICLE CODE'].astype(str).str.contains(vc_query.strip(), case=False, na=False)]
+    if selected_stage != 'All Stages':
+        df_search = df_search[df_search['Stage'] == selected_stage]
+    if selected_shop != 'All Shops':
+        df_search = df_search[df_search['SHOP'].astype(str).str.upper() == selected_shop.upper()]
+    if hold_filter == 'Quality Hold Only':
+        df_search = df_search[df_search['HOLD BY'].notna() & (df_search['HOLD BY'].astype(str).str.strip() != '') & (df_search['HOLD BY'].astype(str).str.upper() != 'NONE')]
+    elif hold_filter == 'Clear Cabs Only':
+        df_search = df_search[df_search['HOLD BY'].isna() | (df_search['HOLD BY'].astype(str).str.strip() == '') | (df_search['HOLD BY'].astype(str).str.upper() == 'NONE')]
+
+    # KPI Summary Cards
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Matching Cabs", f"{len(df_search)} cabs")
+    pbs_count = len(df_search[df_search['Stage'] == 'PBS FLOAT'])
+    m2.metric("PBS Buffer Cabs", f"{pbs_count} cabs")
+    hold_count = len(df_search[df_search['HOLD BY'].notna() & (df_search['HOLD BY'].astype(str).str.strip() != '') & (df_search['HOLD BY'].astype(str).str.upper() != 'NONE')])
+    m3.metric("Quality Hold Cabs", f"{hold_count} cabs", delta_color="inverse")
+    m4.metric("Total Plant Float", f"{len(float_df)} cabs")
+
+    # Detailed Cab Inspector Card if BIW number searched
+    if biw_query.strip() and len(df_search) == 1:
+        cab = df_search.iloc[0]
+        st.markdown(f"#### 🎴 Inspector Timeline for BIW #{cab.get('BIW NUMBER')}")
+        is_dark = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+        card_bg = "#1E293B" if is_dark else "#F8FAFC"
+        border_c = "#334155" if is_dark else "#E2E8F0"
+        
+        st.markdown(f"""
+        <div style="background-color: {card_bg}; border: 1px solid {border_c}; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem;">
+                <div><strong>BIW Number:</strong> <br><span style="font-size: 1.1em; font-weight: bold; color: #3B82F6;">{cab.get('BIW NUMBER', '—')}</span></div>
+                <div><strong>VIN:</strong> <br><span style="font-weight: bold;">{cab.get('VIN', '—')}</span></div>
+                <div><strong>Vehicle Code:</strong> <br><code>{cab.get('VEHICLE CODE', '—')}</code></div>
+                <div><strong>Product / Model:</strong> <br>{cab.get('PRODUCT', '—')} - {cab.get('MODEL', '—')}</div>
+                <div><strong>Colour:</strong> <br>{cab.get('COLOUR', '—')}</div>
+                <div><strong>Shop / Line:</strong> <br><strong>{cab.get('SHOP', '—')}</strong></div>
+                <div><strong>Current Stage:</strong> <br><span style="background-color: #3B82F6; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold;">{cab.get('Stage', '—')}</span></div>
+            </div>
+            <hr style="margin: 1rem 0; border: none; border-top: 1px solid {border_c};">
+            <div style="font-size: 13px;">
+                <strong>🛑 Quality Hold Status:</strong> {f"<span style='color: #EF4444; font-weight: bold;'>HOLD BY: {cab.get('HOLD BY')} | Reason: {cab.get('REASONS S')}</span>" if pd.notna(cab.get('HOLD BY')) and str(cab.get('HOLD BY')).strip() not in ['', 'None'] else "<span style='color: #10B981; font-weight: bold;'>✅ CLEAR (No Quality Hold)</span>"}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Interactive Data Table
+    st.markdown("#### 📋 Float Cab Details")
+    display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'PRODUCT', 'MODEL', 'COLOUR', 'SHOP', 'Stage', 'HOLD BY', 'REASONS S', 'BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT', 'PBS LIFT']
+    available_cols = [c for c in display_cols if c in df_search.columns]
+    
+    st.dataframe(df_search[available_cols], use_container_width=True, hide_index=True)
+    
+    # Export options
+    import io
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        df_search[available_cols].to_excel(writer, index=False, sheet_name='Float Details')
+    
+    st.download_button(
+        label="📥 Export Filtered Float Details to Excel",
+        data=excel_buffer.getvalue(),
+        file_name=f"total_float_details_{default_line}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"export_float_details_{default_line}"
+    )
+
+# Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
+tcf_tabs = st.tabs([
+    "📈 Summary Report & Excel Download",
+    "🏭 TCF 1 Line (Altroz/Punch/Nova)", 
+    "🏭 TCF 2 Line (Harrier/Safari)", 
+    "🔍 Total Float Details & Search",
+    "📊 Combined Summary & Material Shortages"
+])
 
 # Helper function to style allocation dataframe rows
 def style_alloc_table(df):
@@ -898,8 +1073,8 @@ def plot_stock_chart(start, true, final, title):
     plt.tight_layout()
     st.pyplot(fig)
 
-# ----------------- TAB 1: TCF 1 LINE -----------------
-with tcf_tabs[0]:
+# ----------------- TAB 2: TCF 1 LINE -----------------
+with tcf_tabs[1]:
     # KPIs
     ready_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 0
     blocked_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf1_alloc_df.empty else 0
@@ -916,7 +1091,7 @@ with tcf_tabs[0]:
     kpi_cols[2].metric("✅ Ready for TCF", f"{ready_count} cabs", delta=f"+{ready_count} alloc")
     kpi_cols[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count} cabs", delta=f"-{blocked_count} wait", delta_color="inverse")
     
-    line_subtabs = st.tabs(["📋 FIFO Allocation Queue", "📦 Material Stock Status", "🔍 Bottleneck Parts Analysis", "🚗 VIN Generation"])
+    line_subtabs = st.tabs(["📋 FIFO Allocation Queue", "🔍 Total Float Details & Search"])
     
     # Subtab 1: Queue
     with line_subtabs[0]:
@@ -1072,82 +1247,12 @@ with tcf_tabs[0]:
                         key="dl_blocked_tcf1"
                     )
             
-    # Subtab 2: Stock
+    # Subtab 2: Total Float Details
     with line_subtabs[1]:
-        st.markdown("### TCF1 Stock Ledger")
-        
-        # Combine stock counts to display a single table
-        # We merge Starting, Consumed, True Current, Allocated (Ready counts), and Final Virtual
-        def make_stock_table(start, true, final, consumed, agg_type):
-            if start is None or true is None or final is None or consumed is None:
-                return pd.DataFrame()
-            rows = []
-            for part in start.keys():
-                st_qty = start.get(part, 0)
-                cons_qty = consumed.get(part, 0)
-                tc_qty = true.get(part, 0)
-                fin_qty = final.get(part, 0)
-                alloc_qty = tc_qty - fin_qty
-                
-                rows.append({
-                    "Part Number": part,
-                    "Aggregate Type": agg_type,
-                    "Shift Start Qty": st_qty,
-                    "Consumed (Vin Generation)": cons_qty,
-                    "True Current Stock": tc_qty,
-                    "Allocated to PBS": alloc_qty,
-                    "Post-Alloc Virtual Stock": fin_qty
-                })
-            return pd.DataFrame(rows)
-            
-        tcf1_ledger_eng = make_stock_table(engine_stocks_tcf1, true_engine_tcf1, tcf1_final_stocks['engine'] if tcf1_final_stocks['engine'] else {}, eng_cons_tcf1, "Engine")
-        tcf1_ledger_ck = make_stock_table(tcf1_cockpit_start, true_cockpit_tcf1, tcf1_final_stocks['cockpit'] if tcf1_final_stocks['cockpit'] else {}, ck_cons_tcf1, "Cockpit")
-        tcf1_ledger_wh = make_stock_table(tcf1_wiring_start, true_wiring_tcf1, tcf1_final_stocks['wiring'] if tcf1_final_stocks['wiring'] else {}, wh_cons_tcf1, "Front Wiring")
-        
-        tcf1_ledger_all = pd.concat([tcf1_ledger_eng, tcf1_ledger_ck, tcf1_ledger_wh], ignore_index=True)
-        
-        if tcf1_ledger_all.empty:
-            st.info("No stock data loaded.")
-        else:
-            st.dataframe(
-                tcf1_ledger_all.style.background_gradient(subset=["Post-Alloc Virtual Stock"], cmap="RdYlGn", vmin=0, vmax=20),
-                use_container_width=True,
-                hide_index=True
-            )
-            
+        render_total_float_details_view(temp_float_df, default_line="TCF1")
 
-
-    # Subtab 3: (Reserved)
-    with line_subtabs[2]:
-        st.info("This tab has been consolidated. Download Ready-to-TCF and Blocked lists from the FIFO Queue tab above.")
-                    
-    # Subtab 4: VIN Generation
-    with line_subtabs[3]:
-        st.markdown("### TCF1 VIN Generation Modelwise Summary")
-        if tcf1_drops is None or tcf1_drops.empty:
-            st.info("No VIN generation data loaded for TCF1.")
-        else:
-            # Map engine parts to Model names if not already done
-            if 'Model' not in tcf1_drops.columns:
-                tcf1_drops['Model'] = tcf1_drops['Engine_Part'].astype(str).str.strip().map(engine_to_model).fillna('—')
-            
-            # Modelwise summary
-            model_summary = tcf1_drops['Model'].value_counts().reset_index()
-            model_summary.columns = ['Model', 'Cabs Produced']
-            
-            # Display summary
-            col_sum, col_det = st.columns([1, 1.5])
-            with col_sum:
-                st.markdown("#### 📊 Modelwise Count")
-                st.dataframe(model_summary, use_container_width=True, hide_index=True)
-            with col_det:
-                st.markdown("#### 📋 Detailed Cab List")
-                # Show key columns
-                det_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'CREATED DATE', 'SHIFT']
-                st.dataframe(tcf1_drops[det_cols], use_container_width=True, hide_index=True)
-
-# ----------------- TAB 2: TCF 2 LINE -----------------
-with tcf_tabs[1]:
+# ----------------- TAB 3: TCF 2 LINE -----------------
+with tcf_tabs[2]:
     # KPIs
     ready_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
     blocked_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf2_alloc_df.empty else 0
@@ -1164,7 +1269,7 @@ with tcf_tabs[1]:
     kpi_cols_tcf2[2].metric("✅ Ready for TCF", f"{ready_count_tcf2} cabs", delta=f"+{ready_count_tcf2} alloc")
     kpi_cols_tcf2[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count_tcf2} cabs", delta=f"-{blocked_count_tcf2} wait", delta_color="inverse")
     
-    line_subtabs_tcf2 = st.tabs(["📋 FIFO Allocation Queue", "📦 Material Stock Status", "🔍 Bottleneck Parts Analysis", "🚗 VIN Generation"])
+    line_subtabs_tcf2 = st.tabs(["📋 FIFO Allocation Queue", "🔍 Total Float Details & Search"])
     
     # Subtab 1: Queue
     with line_subtabs_tcf2[0]:
@@ -1320,58 +1425,16 @@ with tcf_tabs[1]:
                         key="dl_blocked_tcf2"
                     )
             
-    # Subtab 2: Stock
+    # Subtab 2: Total Float Details
     with line_subtabs_tcf2[1]:
-        st.markdown("### TCF2 Stock Ledger")
-        
-        tcf2_ledger_eng = make_stock_table(engine_stocks_tcf2, true_engine_tcf2, tcf2_final_stocks['engine'] if tcf2_final_stocks['engine'] else {}, eng_cons_tcf2, "Engine")
-        tcf2_ledger_ck = make_stock_table(tcf2_cockpit_start, true_cockpit_tcf2, tcf2_final_stocks['cockpit'] if tcf2_final_stocks['cockpit'] else {}, ck_cons_tcf2, "Cockpit")
-        tcf2_ledger_wh = make_stock_table(tcf2_wiring_start, true_wiring_tcf2, tcf2_final_stocks['wiring'] if tcf2_final_stocks['wiring'] else {}, wh_cons_tcf2, "Front Wiring")
-        
-        tcf2_ledger_all = pd.concat([tcf2_ledger_eng, tcf2_ledger_ck, tcf2_ledger_wh], ignore_index=True)
-        
-        if tcf2_ledger_all.empty:
-            st.info("No stock data loaded.")
-        else:
-            st.dataframe(
-                tcf2_ledger_all.style.background_gradient(subset=["Post-Alloc Virtual Stock"], cmap="RdYlGn", vmin=0, vmax=20),
-                use_container_width=True,
-                hide_index=True
-            )
-            
+        render_total_float_details_view(temp_float_df, default_line="TCF2")
 
+# ----------------- TAB 4: TOTAL FLOAT DETAILS & SEARCH -----------------
+with tcf_tabs[3]:
+    render_total_float_details_view(temp_float_df, default_line="All")
 
-    # Subtab 3: (Reserved)
-    with line_subtabs_tcf2[2]:
-        st.info("This tab has been consolidated. Download Ready-to-TCF and Blocked lists from the FIFO Queue tab above.")
-                    
-    # Subtab 4: VIN Generation
-    with line_subtabs_tcf2[3]:
-        st.markdown("### TCF2 VIN Generation Modelwise Summary")
-        if tcf2_drops is None or tcf2_drops.empty:
-            st.info("No VIN generation data loaded for TCF2.")
-        else:
-            # Map engine parts to Model names if not already done
-            if 'Model' not in tcf2_drops.columns:
-                tcf2_drops['Model'] = tcf2_drops['Engine_Part'].astype(str).str.strip().map(engine_to_model).fillna('—')
-            
-            # Modelwise summary
-            model_summary_tcf2 = tcf2_drops['Model'].value_counts().reset_index()
-            model_summary_tcf2.columns = ['Model', 'Cabs Produced']
-            
-            # Display summary
-            col_sum_tcf2, col_det_tcf2 = st.columns([1, 1.5])
-            with col_sum_tcf2:
-                st.markdown("#### 📊 Modelwise Count")
-                st.dataframe(model_summary_tcf2, use_container_width=True, hide_index=True)
-            with col_det_tcf2:
-                st.markdown("#### 📋 Detailed Cab List")
-                # Show key columns
-                det_cols_tcf2 = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'CREATED DATE', 'SHIFT']
-                st.dataframe(tcf2_drops[det_cols_tcf2], use_container_width=True, hide_index=True)
-
-# ----------------- TAB 3: COMBINED SUMMARY & SHORTAGES -----------------
-with tcf_tabs[2]:
+# ----------------- TAB 5: COMBINED SUMMARY & SHORTAGES -----------------
+with tcf_tabs[4]:
     st.markdown("### 📊 Combined Buffer Performance")
     
     # Combined Metrics
@@ -1603,8 +1666,8 @@ with tcf_tabs[2]:
             key="export_shortages"
         )
 
-# ----------------- TAB 4: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
-with tcf_tabs[3]:
+# ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
+with tcf_tabs[0]:
     st.markdown("### 📊 Paint Shop Float Summary")
     st.markdown("""
         This report displays the paint shop buffer status by stage and model, matching the exact layout of the paint shop tracker sheet.
@@ -1629,48 +1692,7 @@ with tcf_tabs[3]:
             return 'UNKNOWN'
             
         def get_row_paint_stage(row):
-            biw_t = pd.to_datetime(row.get('BIW LIFTING'), dayfirst=True, errors='coerce') if pd.notna(row.get('BIW LIFTING')) else None
-            ptced_t = pd.to_datetime(row.get('PTCED'), dayfirst=True, errors='coerce') if pd.notna(row.get('PTCED')) else None
-            sealant_t = pd.to_datetime(row.get('SEALANT'), dayfirst=True, errors='coerce') if pd.notna(row.get('SEALANT')) else None
-            topcoat_t = pd.to_datetime(row.get('TOPCOAT'), dayfirst=True, errors='coerce') if pd.notna(row.get('TOPCOAT')) else None
-            pbs_t = pd.to_datetime(row.get('PBS LIFT'), dayfirst=True, errors='coerce') if pd.notna(row.get('PBS LIFT')) else None
-            
-            color = str(row.get('COLOUR', '')).strip().upper()
-            is_dual = '-' in color or '/' in color or 'GBK' in color or 'WHT' in color
-            
-            vin = str(row.get('VIN', ''))
-            h = sum(ord(c) for c in vin) % 100
-            
-            # 1. If PBS Lift scan is done, the cab is in PBS FLOAT
-            if pd.notna(pbs_t):
-                return 'PBS FLOAT'
-                
-            # 2. If TOPCOAT is done (but not PBS): it is between Topcoat and PBS
-            elif pd.notna(topcoat_t):
-                if h < 50:
-                    return 'POLISHING TO TOPCOAT'
-                else:
-                    return 'PBS TO POLISHING'
-                    
-            # 3. If SEALANT is done (but not TOPCOAT): it is between Sealant and Topcoat
-            elif pd.notna(sealant_t):
-                if is_dual:
-                    return 'TOPCOAT TO WETSANDING G ROOFBLACK'
-                else:
-                    return 'TOPCOAT TO WETSANDING G FRESH'
-                    
-            # 4. If PTCED is done (but not SEALANT): it is between PTCED and Sealant
-            elif pd.notna(ptced_t):
-                return 'WETSANDING G TO SEALANT'
-                
-            # 5. If BIW LIFTING is done (but not PTCED): it is between BIW Lifting and PTCED
-            elif pd.notna(biw_t):
-                if h < 50:
-                    return 'BIW LIFTING G TO PT'
-                else:
-                    return 'PT ENTRY TO SEALANT'
-            else:
-                return 'PT BYPASS'
+            return ae.get_detailed_paint_summary_stage(row)
                 
         temp_float_df = float_df.copy()
         temp_float_df['Model_Mapped'] = temp_float_df['PRODUCT'].apply(get_summary_product_to_model)
@@ -2236,6 +2258,174 @@ with tcf_tabs[3]:
             
         st.markdown(render_html_table_2(table2_rows, is_dark_theme), unsafe_allow_html=True)
         
+        # ----------------- COCKPIT & WIRING SHORTAGE REPORTS (EXACT USER FORMAT) -----------------
+        st.markdown("---")
+        st.markdown("### 🧩 Cockpit & Wiring Shortage Reports")
+        st.markdown("""
+            These reports track Cockpit and Wiring Harness shortage requirements in the exact layout matching engine summary sheet models.
+        """)
+        
+        # Helper to build shortage table for Cockpit or Front Wiring
+        def build_formatted_shortage_table(part_col_name, stock_tcf1, stock_tcf2, bom_df, float_df, tcf1_drops, tcf2_drops):
+            if bom_df is None or bom_df.empty:
+                return pd.DataFrame()
+                
+            local_engine_to_model = {}
+            local_engine_to_line = {}
+            if 'engine_df' in st.session_state and not st.session_state.engine_df.empty:
+                local_engine_to_model = dict(zip(st.session_state.engine_df['Engine Part No'].astype(str).str.strip(), st.session_state.engine_df['Model']))
+                local_engine_to_line = dict(zip(st.session_state.engine_df['Engine Part No'].astype(str).str.strip(), st.session_state.engine_df['TCF Line']))
+            else:
+                local_engine_to_model = {item['Engine Part No']: item['Model'] for item in engine_default_data}
+                local_engine_to_line = {item['Engine Part No']: item['TCF Line'] for item in engine_default_data}
+
+            vc_to_part = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df[part_col_name].astype(str).str.strip()))
+            
+            part_to_models = {}
+            part_to_line = {}
+            
+            for idx, row in bom_df.iterrows():
+                eng = str(row.get('Engine', '')).strip()
+                part = str(row.get(part_col_name, '')).strip()
+                mdl = local_engine_to_model.get(eng, '')
+                line = local_engine_to_line.get(eng, '')
+                if mdl and part and part not in ['None', 'nan', '0']:
+                    part_to_models.setdefault(part, set()).add(mdl)
+                    if line:
+                        part_to_line[part] = line
+                        
+            pbs_dict = {}
+            sealant_dict = {}
+            total_dict = {}
+            stages_upto_sealant = ['PBS FLOAT', 'PBS TO POLISHING', 'POLISHING TO TOPCOAT', 'TOPCOAT TO WETSANDING G ROOFBLACK', 'TOPCOAT TO WETSANDING G FRESH', 'WETSANDING G TO SEALANT']
+            
+            if float_df is not None and not float_df.empty:
+                for idx, row in float_df.iterrows():
+                    vc = str(row.get('VEHICLE CODE', '')).strip()[:9]
+                    p = vc_to_part.get(vc)
+                    if p and p not in ['None', 'nan', '0']:
+                        total_dict[p] = total_dict.get(p, 0) + 1
+                        stg = row.get('Stage', '')
+                        if stg == 'PBS FLOAT':
+                            pbs_dict[p] = pbs_dict.get(p, 0) + 1
+                        if stg in stages_upto_sealant:
+                            sealant_dict[p] = sealant_dict.get(p, 0) + 1
+                            
+            today_vin_dict = {}
+            if tcf1_drops is not None and not tcf1_drops.empty:
+                if 'Part_Mapped' not in tcf1_drops.columns:
+                    tcf1_drops['Part_Mapped'] = tcf1_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
+                for p, count in tcf1_drops['Part_Mapped'].value_counts().items():
+                    if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
+                    
+            if tcf2_drops is not None and not tcf2_drops.empty:
+                if 'Part_Mapped' not in tcf2_drops.columns:
+                    tcf2_drops['Part_Mapped'] = tcf2_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
+                for p, count in tcf2_drops['Part_Mapped'].value_counts().items():
+                    if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
+
+            table_rows = []
+            header_part_name = 'Cockpit Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
+            
+            for part, mdls in part_to_models.items():
+                line = part_to_line.get(part, 'TCF1')
+                stock = (stock_tcf1.get(part, 0) if line == 'TCF1' else stock_tcf2.get(part, 0)) if stock_tcf1 or stock_tcf2 else 0
+                today_vin = today_vin_dict.get(part, 0)
+                pbs = pbs_dict.get(part, 0)
+                sealant = sealant_dict.get(part, 0)
+                total = total_dict.get(part, 0)
+                
+                sh_pbs = stock - today_vin - pbs
+                sh_sealant = stock - today_vin - sealant
+                sh_total = stock - today_vin - total
+                
+                # Filter to include ONLY items with an actual shortage (negative against float)
+                if sh_pbs < 0 or sh_sealant < 0 or sh_total < 0:
+                    table_rows.append({
+                        header_part_name: part,
+                        'Model': ', '.join(sorted(mdls)),
+                        'LINE': line,
+                        'Clearance After 6:30AM': stock,
+                        'Today VIN': today_vin,
+                        'Paint TOTAL FLOAT': total,
+                        'PBS FLOAT': pbs,
+                        'Cabs Float UPTO SEALANT': sealant,
+                        'Shortage PBS FLOAT': sh_pbs,
+                        'Shortage Upto Sealant': sh_sealant,
+                        'Shortage TOTAL FLOAT': sh_total
+                    })
+                
+            return pd.DataFrame(table_rows)
+
+        df_cpt_shortage = build_formatted_shortage_table('Cockpit', true_cockpit_tcf1, true_cockpit_tcf2, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
+        df_wir_shortage = build_formatted_shortage_table('Front Wiring', true_wiring_tcf1, true_wiring_tcf2, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
+
+        def render_html_formatted_shortage(df, part_header_name, is_dark):
+            if df.empty:
+                return "<p style='color: #6B7280; font-style: italic;'>No data available.</p>"
+                
+            th_bg_orange = "#382315" if is_dark else "#FCE4D6"
+            th_text_orange = "#FAFAFA" if is_dark else "#73330D"
+            
+            th_bg_blue = "#1A2B4C" if is_dark else "#BDD7EE"
+            th_text_blue = "#FAFAFA" if is_dark else "#1A2B4C"
+
+            th_bg_blue2 = "#1E3A5F" if is_dark else "#9BC2E6"
+            
+            td_border = "#30363D" if is_dark else "#E5E7EB"
+            text_color = "#FAFAFA" if is_dark else "#111827"
+            
+            alert_bg = "#5c1d1d" if is_dark else "#FFD1D1"
+            alert_text = "#FAFAFA" if is_dark else "#5C1D1B"
+            
+            html = f"""
+            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#161B22' if is_dark else '#FFFFFF'}; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12px; color: {text_color};">
+                <thead>
+                    <tr style="border-bottom: 2px solid {td_border};">
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: bold;">{part_header_name}</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: bold; width: 220px;">Model</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: bold;">LINE</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Clearance After 6:30AM</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Today VIN</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Paint TOTAL FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">PBS FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Cabs Float UPTO SEALANT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue}; font-weight: bold;">Shortage PBS FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue}; font-weight: bold;">Shortage Upto Sealant</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue}; font-weight: bold;">Shortage TOTAL FLOAT</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """
+            for idx, r in df.iterrows():
+                html += f'<tr style="border-bottom: 1px solid {td_border};">'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center; font-weight: 600;">{r[part_header_name]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: left;">{r["Model"]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{r["LINE"]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{r["Clearance After 6:30AM"]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{r["Today VIN"]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{r["Paint TOTAL FLOAT"]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{r["PBS FLOAT"]}</td>'
+                html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{r["Cabs Float UPTO SEALANT"]}</td>'
+                
+                for col_sh in ["Shortage PBS FLOAT", "Shortage Upto Sealant", "Shortage TOTAL FLOAT"]:
+                    val_sh = r[col_sh]
+                    if isinstance(val_sh, (int, float)) and val_sh < 0:
+                        html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center; background-color: {alert_bg}; color: {alert_text}; font-weight: bold;">{val_sh}</td>'
+                    else:
+                        html += f'<td style="padding: 8px; border: 1px solid {td_border}; text-align: center;">{val_sh}</td>'
+                        
+                html += '</tr>'
+            html += "</tbody></table></div>"
+            return html
+
+        st.markdown("#### 🚗 Cockpit Shortage Report")
+        st.markdown(render_html_formatted_shortage(df_cpt_shortage, "Cockpit Part Number", is_dark_theme), unsafe_allow_html=True)
+
+        st.markdown("#### ⚡ Wiring Harness Shortage Report")
+        st.markdown(render_html_formatted_shortage(df_wir_shortage, "Wiring Part Number", is_dark_theme), unsafe_allow_html=True)
+        
         # Excel generator with beautiful color schemes matching attached copy
         import io
         from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -2388,6 +2578,53 @@ with tcf_tabs[3]:
                 max_len = max(len(str(cell.value or '')) for cell in col)
                 col_letter = openpyxl.utils.get_column_letter(col[0].column)
                 worksheet2.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+            # Function to format openpyxl sheet for Cockpit / Wiring Shortage
+            def format_openpyxl_shortage_sheet(sheet_name, df_data, part_col_hdr):
+                if df_data.empty:
+                    return
+                df_data.to_excel(writer, index=False, sheet_name=sheet_name)
+                ws = writer.sheets[sheet_name]
+                ws.row_dimensions[1].height = 28
+                
+                fill_peach = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
+                fill_blue = PatternFill(start_color='BDD7EE', end_color='BDD7EE', fill_type='solid')
+                fill_blue2 = PatternFill(start_color='9BC2E6', end_color='9BC2E6', fill_type='solid')
+                
+                for c_i, col_name in enumerate(df_data.columns, start=1):
+                    cell = ws.cell(row=1, column=c_i)
+                    cell.font = font_header
+                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    cell.border = thin_border
+                    if c_i <= 3:
+                        cell.fill = fill_peach
+                    elif c_i <= 8:
+                        cell.fill = fill_blue
+                    else:
+                        cell.fill = fill_blue2
+                        
+                for r_i, r_val in enumerate(df_data.iterrows(), start=2):
+                    ws.row_dimensions[r_i].height = 20
+                    row_dict = r_val[1]
+                    for c_i, col_name in enumerate(df_data.columns, start=1):
+                        cell = ws.cell(row=r_i, column=c_i)
+                        val = row_dict[col_name]
+                        cell.value = val
+                        cell.border = thin_border
+                        cell.font = font_normal
+                        cell.alignment = Alignment(horizontal='center' if col_name != 'Model' else 'left', vertical='center')
+                        
+                        if 'Shortage' in col_name and isinstance(val, (int, float)) and val < 0:
+                            cell.fill = PatternFill(start_color='FFD1D1', end_color='FFD1D1', fill_type='solid')
+                            cell.font = Font(name='Calibri', size=11, bold=True, color='5C1D1B')
+                            
+                for col in ws.columns:
+                    max_len = max(len(str(cell.value or '')) for cell in col)
+                    col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                    ws.column_dimensions[col_letter].width = max(max_len + 3, 14)
+
+            format_openpyxl_shortage_sheet('Cockpit Shortage', df_cpt_shortage, 'Cockpit Part Number')
+            format_openpyxl_shortage_sheet('Wiring Shortage', df_wir_shortage, 'Wiring Part Number')
                 
         excel_data = excel_buffer.getvalue()
         
