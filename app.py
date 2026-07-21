@@ -587,13 +587,7 @@ with config_expander:
 
         status_html = "<div style='font-family: \"Inter\", sans-serif; font-size: 13px; line-height: 1.8; margin-top: 8px;'>"
         for num, name, icon, src in status_items:
-            status_html += f"""
-            <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                <span style="font-weight: 700; width: 255px; color: {label_color}; display: inline-block; flex-shrink: 0;">{num}. {name}:</span>
-                <span style="margin-right: 12px; flex-shrink: 0;">{icon}</span>
-                <span style="color: {sub_text_color}; font-size: 12px; word-break: break-all;">{src}</span>
-            </div>
-            """
+            status_html += f'<div style="display: flex; align-items: center; margin-bottom: 4px;"><span style="font-weight: 700; width: 255px; color: {label_color}; display: inline-block; flex-shrink: 0;">{num}. {name}:</span><span style="margin-right: 12px; flex-shrink: 0;">{icon}</span><span style="color: {sub_text_color}; font-size: 12px; word-break: break-all;">{src}</span></div>'
         status_html += "</div>"
         st.markdown(status_html, unsafe_allow_html=True)
             
