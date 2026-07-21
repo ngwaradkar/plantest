@@ -129,9 +129,10 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
         wh_part_str = str(wh_part).strip() if wh_part else None
         
         # Check for incomplete BOM (any required part is None or '0')
+        is_bat_bom = (product and ('EV' in str(product).upper() or 'NOVA' in str(product).upper()))
         incomplete = []
         if not eng_part_str or eng_part_str == '0':
-            incomplete.append('Engine')
+            incomplete.append('Battery' if is_bat_bom else 'Engine')
         if not ck_part_str or ck_part_str == '0':
             incomplete.append('Cockpit')
         if not wh_part_str or wh_part_str == '0':
@@ -166,12 +167,14 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
         
         shortages = []
         
-        # Engine stock check
+        # Engine / Battery stock check
         if virt_engine is not None:
             stock = virt_engine.get(eng_part_str, 0)
             if stock <= 0:
                 has_engine = False
-                shortages.append(f"Engine {eng_part_str} (Stock: {stock})")
+                is_battery = eng_part_str in ['546816111212', '547380400103'] or (product and ('EV' in str(product).upper() or 'NOVA' in str(product).upper()))
+                part_lbl = 'Battery' if is_battery else 'Engine'
+                shortages.append(f"{part_lbl} {eng_part_str} (Stock: {stock})")
                 
         # Cockpit stock check
         if virt_cockpit is not None:
@@ -411,10 +414,11 @@ def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
                 else:
                     status = "🟢 Healthy"
                     
+                display_agg = 'Battery' if (agg_type == 'Engine' and (part_no in ['546816111212', '547380400103'])) else agg_type
                 report_rows.append({
                     'Stage': stage,
                     'TCF Line': shop,
-                    'Aggregate Type': agg_type,
+                    'Aggregate Type': display_agg,
                     'Part Number': part_no,
                     'Stage Demand': stage_demand,
                     'Cumulative Demand': cum_demand,

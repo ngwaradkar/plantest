@@ -1597,9 +1597,14 @@ with tcf_tabs[4]:
                 if agg_type == 'Engine' and engine_to_model:
                     model_name = engine_to_model.get(part_no, '—')
                     
+                part_cat = agg_type
+                if agg_type == 'Engine':
+                    if part_no in ['546816111212', '547380400103'] or 'EV' in str(model_name).upper() or 'NOVA' in str(model_name).upper():
+                        part_cat = 'Battery'
+                        
                 shortage_data.append({
                     'TCF Line': shop,
-                    'Part Category': agg_type,
+                    'Part Category': part_cat,
                     'Part Number': part_no,
                     'Model': model_name,
                     'Current Stock': stock,
@@ -1613,8 +1618,8 @@ with tcf_tabs[4]:
     # Filter
     selected_categories = st.multiselect(
         "Filter by part category:",
-        options=['Engine', 'Cockpit', 'Front Wiring'],
-        default=['Engine', 'Cockpit', 'Front Wiring'],
+        options=['Engine', 'Battery', 'Cockpit', 'Front Wiring'],
+        default=['Engine', 'Battery', 'Cockpit', 'Front Wiring'],
         key="shortage_categories_filter"
     )
     
@@ -2178,7 +2183,7 @@ with tcf_tabs[0]:
             <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12px; color: {text_color};">
                 <thead>
                     <tr style="background-color: {th_bg}; border-bottom: 1px solid {td_border};">
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; vertical-align: middle;">Engine Part No</th>
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; vertical-align: middle;">Engine / Battery Part No</th>
                         <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 600; width: 180px; vertical-align: middle;">Model</th>
                         <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; vertical-align: middle;">TA Code</th>
                         <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; white-space: normal; vertical-align: middle;">Clearance After 6:30AM</th>
@@ -2510,7 +2515,7 @@ with tcf_tabs[0]:
             worksheet2.merge_cells('G1:I1')
             worksheet2.merge_cells('J1:L1')
             
-            worksheet2['A1'] = "Engine Part No"
+            worksheet2['A1'] = "Engine / Battery Part No"
             worksheet2['B1'] = "Model"
             worksheet2['C1'] = "TA Code"
             worksheet2['D1'] = "Clearance After 6:30AM"
