@@ -646,7 +646,7 @@ if 'run_report' not in st.session_state:
 st.markdown("---")
 col_gen1, col_gen2 = st.columns([1.5, 3.5])
 with col_gen1:
-    btn_label = "🚀 Generate Report" if not st.session_state.run_report else "🔄 Re-generate Report"
+    btn_label = "🚀 Generate Report" if not st.session_state.run_report else "🔄 Update Dashboard Data"
     if st.button(btn_label, type="primary", use_container_width=True, key="btn_generate_report_control"):
         st.session_state.run_report = True
         st.rerun()
@@ -655,7 +655,7 @@ with col_gen2:
     if not st.session_state.run_report:
         st.info("💡 Files or engine data have been updated. Click **'🚀 Generate Report'** on the left to run calculations.")
     else:
-        st.caption("✅ Report is generated. Uploading new files or updating engine clearances will pause auto-runs until you click **'Re-generate Report'**.")
+        st.caption("✅ Report is generated. Uploading new files or updating engine clearances will pause auto-runs until you click **'Update Dashboard Data'**.")
 
 if not st.session_state.run_report:
     st.stop()
