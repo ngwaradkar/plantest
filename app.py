@@ -52,18 +52,21 @@ is_dark = st.session_state.theme == "🌙 Dark Theme"
 if is_dark:
     theme_vars = """
     :root {
-        --bg-primary: #0E1117;
-        --bg-secondary: #1F2937;
-        --card-bg: #161B22;
-        --text-primary: #FAFAFA;
-        --text-secondary: #D1D5DB;
-        --border-color: #30363D;
-        --accent-color: #4A9EFF;
-        --accent-hover: #7BB4FF;
-        --success-color: #10B981;
-        --warning-color: #F59E0B;
+        --bg-primary: #0B1220;
+        --bg-secondary: #111827;
+        --card-bg: #1E293B;
+        --sidebar-bg: #111827;
+        --text-primary: #F8FAFC;
+        --text-secondary: #CBD5E1;
+        --text-muted: #94A3B8;
+        --border-color: #334155;
+        --accent-color: #3B82F6;
+        --accent-hover: #1E40AF;
+        --hover-bg: #1E40AF;
+        --success-color: #22C55E;
+        --warning-color: #FBBF24;
         --danger-color: #EF4444;
-        --hover-tint: rgba(74, 158, 255, 0.08);
+        --hover-tint: rgba(59, 130, 246, 0.12);
         --card-ready-bg: #064E3B;
         --card-ready-text: #D1FAE5;
         --card-blocked-bg: #7F1D1D;
@@ -79,22 +82,25 @@ if is_dark:
 else:
     theme_vars = """
     :root {
-        --bg-primary: #F9FAFB;
-        --bg-secondary: #FFFFFF;
+        --bg-primary: #F8FAFC;
+        --bg-secondary: #F1F5F9;
         --card-bg: #FFFFFF;
-        --text-primary: #111827;
-        --text-secondary: #374151;
-        --border-color: #E5E7EB;
-        --accent-color: #1D4ED8;
-        --accent-hover: #1E3A8A;
+        --sidebar-bg: #F1F5F9;
+        --text-primary: #0F172A;
+        --text-secondary: #475569;
+        --text-muted: #64748B;
+        --border-color: #CBD5E1;
+        --accent-color: #2563EB;
+        --accent-hover: #1D4ED8;
+        --hover-bg: #DBEAFE;
         --success-color: #16A34A;
         --warning-color: #F59E0B;
         --danger-color: #DC2626;
-        --hover-tint: rgba(29, 78, 216, 0.05);
-        --card-ready-bg: #F0FAF4;
+        --hover-tint: rgba(37, 99, 235, 0.08);
+        --card-ready-bg: #F0FDF4;
         --card-ready-text: #166534;
-        --card-blocked-bg: #FFF5F5;
-        --card-blocked-text: #B91C1C;
+        --card-blocked-bg: #FEF2F2;
+        --card-blocked-text: #991B1B;
         
         /* Map Streamlit native properties to match */
         --primary-color: var(--accent-color) !important;
@@ -111,7 +117,7 @@ st.markdown(f"""
     {theme_vars}
     
     html, body, [class*="css"] {{
-        font-family: 'Inter', sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     }}
     
     /* Global App Background */
@@ -137,51 +143,51 @@ st.markdown(f"""
         max-width: 100% !important;
     }}
     
-    /* Premium Metric Cards with Hover lift animation */
+    /* Premium Metric Cards with Subtle Lift & Soft Shadow */
     div[data-testid="stMetric"] {{
         background-color: var(--card-bg) !important;
         border: 1px solid var(--border-color) !important;
-        padding: 1rem 1.25rem !important;
+        padding: 1.2rem 1.4rem !important;
         border-radius: 12px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.08) !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
         min-width: 0 !important;
         width: 100% !important;
     }}
     div[data-testid="stMetric"]:hover {{
-        transform: translateY(-4px) !important;
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08) !important;
-        border-color: var(--accent-hover) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1) !important;
+        border-color: var(--accent-color) !important;
     }}
     
     /* Colorful left border accents for each metric column */
     div[data-testid="column"]:nth-of-type(1) div[data-testid="stMetric"] {{
-        border-left: 5px solid var(--accent-color) !important;
+        border-left: 4px solid var(--accent-color) !important;
     }}
     div[data-testid="column"]:nth-of-type(2) div[data-testid="stMetric"] {{
-        border-left: 5px solid #06B6D4 !important; /* Cyan */
+        border-left: 4px solid #0EA5E9 !important; /* Sky Blue */
     }}
     div[data-testid="column"]:nth-of-type(3) div[data-testid="stMetric"] {{
-        border-left: 5px solid var(--success-color) !important; /* Success Green */
+        border-left: 4px solid var(--success-color) !important; /* Success Green */
     }}
     div[data-testid="column"]:nth-of-type(4) div[data-testid="stMetric"] {{
-        border-left: 5px solid var(--danger-color) !important; /* Danger Red */
+        border-left: 4px solid var(--danger-color) !important; /* Danger Red */
     }}
     
     div[data-testid="stMetric"] label {{
         color: var(--text-secondary) !important;
         font-weight: 600 !important;
-        font-size: 0.82rem !important;
+        font-size: 0.85rem !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.06em !important;
+        letter-spacing: 0.05em !important;
     }}
     
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
         color: var(--text-primary) !important;
-        font-weight: 750 !important;
-        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+        font-size: 1.5rem !important;
         line-height: 1.3 !important;
-        letter-spacing: -0.015em !important;
+        letter-spacing: -0.02em !important;
         word-break: normal !important;
         white-space: normal !important;
         overflow: visible !important;
@@ -190,7 +196,7 @@ st.markdown(f"""
     /* Segmented control for tabs */
     div[data-baseweb="tab-list"] {{
         background-color: var(--bg-secondary) !important;
-        padding: 0.3rem !important;
+        padding: 0.35rem !important;
         border-radius: 12px !important;
         gap: 6px !important;
         margin-bottom: 2rem !important;
@@ -200,10 +206,10 @@ st.markdown(f"""
         background-color: transparent !important;
         border: none !important;
         border-radius: 8px !important;
-        padding: 0.6rem 1.4rem !important;
+        padding: 0.65rem 1.4rem !important;
         color: var(--text-secondary) !important;
         font-weight: 600 !important;
-        font-size: 0.92rem !important;
+        font-size: 0.95rem !important;
         transition: all 0.2s ease !important;
     }}
     button[data-baseweb="tab"]:hover {{
@@ -214,9 +220,8 @@ st.markdown(f"""
         background-color: var(--card-bg) !important;
         color: var(--accent-color) !important;
         border: 1px solid var(--border-color) !important;
-        border-bottom: 3px solid var(--accent-color) !important;
         font-weight: 700 !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04) !important;
+        box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.06) !important;
     }}
     div[data-baseweb="tab-border"] {{
         display: none !important;
@@ -227,12 +232,13 @@ st.markdown(f"""
         background-color: var(--card-bg) !important;
         border: 1px solid var(--border-color) !important;
         border-radius: 12px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.01) !important;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
         margin-bottom: 1.5rem !important;
     }}
     details[data-testid="stExpander"] summary {{
         font-weight: 600 !important;
         color: var(--text-primary) !important;
+        font-size: 1rem !important;
     }}
     
     /* Form inputs and select boxes */
@@ -240,7 +246,7 @@ st.markdown(f"""
         background-color: var(--card-bg) !important;
         color: var(--text-primary) !important;
         border-color: var(--border-color) !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
     }}
     div[data-baseweb="select"]:hover, div[data-baseweb="input"]:hover {{
         border-color: var(--accent-color) !important;
@@ -249,18 +255,19 @@ st.markdown(f"""
     /* Button premium styling with micro-interaction hover/active states */
     button[kind="primary"] {{
         background-color: var(--accent-color) !important;
-        color: white !important;
+        color: #FFFFFF !important;
         border: none !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
-        padding: 0.6rem 1.6rem !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15) !important;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        font-size: 0.95rem !important;
+        padding: 0.65rem 1.5rem !important;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1) !important;
+        transition: all 0.2s ease-in-out !important;
     }}
     button[kind="primary"]:hover {{
         background-color: var(--accent-hover) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 16px rgba(37, 99, 235, 0.25) !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.12) !important;
+        transform: translateY(-1px) !important;
     }}
     button[kind="primary"]:active {{
         transform: translateY(0) !important;
@@ -270,15 +277,17 @@ st.markdown(f"""
         background-color: var(--card-bg) !important;
         color: var(--text-primary) !important;
         border: 1px solid var(--border-color) !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
-        padding: 0.6rem 1.6rem !important;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        font-size: 0.95rem !important;
+        padding: 0.65rem 1.5rem !important;
+        transition: all 0.2s ease-in-out !important;
     }}
     button[kind="secondary"]:hover {{
         background-color: var(--hover-tint) !important;
         border-color: var(--accent-color) !important;
-        transform: translateY(-2px) !important;
+        color: var(--accent-color) !important;
+        transform: translateY(-1px) !important;
     }}
     button[kind="secondary"]:active {{
         transform: translateY(0) !important;
@@ -289,7 +298,7 @@ st.markdown(f"""
         border-radius: 12px !important;
         border: 1px solid var(--border-color) !important;
         background-color: var(--card-bg) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02) !important;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
         overflow: hidden !important;
     }}
     
@@ -299,24 +308,36 @@ st.markdown(f"""
         border-radius: 12px !important;
         background-color: var(--card-bg) !important;
         padding: 1.5rem !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02) !important;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
     }}
     
-    /* Headings */
+    /* Headings Typography System */
     h1, h2, h3, h4, h5, h6 {{
-        font-family: 'Inter', sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
         color: var(--text-primary) !important;
-        letter-spacing: -0.02em !important;
+        letter-spacing: -0.025em !important;
         line-height: 1.3 !important;
     }}
-    h1 {{ font-size: 2.2rem !important; font-weight: 850 !important; }}
-    h2 {{ font-size: 1.8rem !important; font-weight: 750 !important; }}
-    h3 {{ font-size: 1.45rem !important; font-weight: 700 !important; }}
-    h4 {{ font-size: 1.2rem !important; font-weight: 650 !important; }}
+    h1 {{ font-size: 2.25rem !important; font-weight: 800 !important; }} /* 36px */
+    h2 {{ font-size: 1.75rem !important; font-weight: 700 !important; }} /* 28px */
+    h3 {{ font-size: 1.375rem !important; font-weight: 600 !important; }} /* 22px */
+    h4 {{ font-size: 1.125rem !important; font-weight: 600 !important; }} /* 18px */
+    
+    p, label {{
+        font-size: 1rem !important; /* 16px */
+        line-height: 1.5 !important;
+        font-weight: 400 !important;
+        color: var(--text-primary) !important;
+    }}
+    small, .stCaption {{
+        font-size: 0.875rem !important; /* 14px */
+        color: var(--text-secondary) !important;
+    }}
     
     /* Horizontal rules */
     hr {{
         border-color: var(--border-color) !important;
+        margin: 2rem 0 !important;
     }}
     
     /* Custom file uploader border */
@@ -1744,30 +1765,30 @@ with tcf_tabs[0]:
         is_dark_theme = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
         
         def render_html_float_summary(df, is_dark):
-            th_bg = "#1F2937" if is_dark else "#F3F4F6"
-            th_text = "#FAFAFA" if is_dark else "#374151"
-            td_border = "#30363D" if is_dark else "#E5E7EB"
-            text_color = "#FAFAFA" if is_dark else "#111827"
+            th_bg = "#111827" if is_dark else "#F1F5F9"
+            th_text = "#F8FAFC" if is_dark else "#0F172A"
+            td_border = "#334155" if is_dark else "#CBD5E1"
+            text_color = "#F8FAFC" if is_dark else "#0F172A"
             
             html = f"""
-            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#161B22' if is_dark else '#FFFFFF'}; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12px; color: {text_color};">
+            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#1E293B' if is_dark else '#FFFFFF'}; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05);">
+            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 13px; color: {text_color};">
                 <thead>
-                    <tr style="background-color: {th_bg}; border-bottom: 2px solid {td_border};">
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 600;">Paint Float</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 600; width: 110px;">MODEL</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 60px; word-wrap: break-word; white-space: normal;">TOTAL FLOAT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 60px; word-wrap: break-word; white-space: normal;">PBS FLOAT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; word-wrap: break-word; white-space: normal;">PBS TO POLISHING</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; word-wrap: break-word; white-space: normal;">POLISHING TO TOPCOAT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 100px; max-width: 120px; word-wrap: break-word; white-space: normal;">TOPCOAT TO WETSANDING G ROOFBLACK</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 100px; max-width: 120px; word-wrap: break-word; white-space: normal;">TOPCOAT TO WETSANDING G FRESH</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 100px; max-width: 120px; word-wrap: break-word; white-space: normal;">WETSANDING G TO SEALANT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; max-width: 100px; word-wrap: break-word; white-space: normal;">TOTAL UPTO SEALANT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; max-width: 100px; word-wrap: break-word; white-space: normal;">PT ENTRY TO SEALANT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; max-width: 100px; word-wrap: break-word; white-space: normal;">BIW LIFTING G TO PT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 60px; word-wrap: break-word; white-space: normal;">PT BYPASS</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 60px; word-wrap: break-word; white-space: normal;">Today VIN</th>
+                    <tr style="background-color: {th_bg}; border-bottom: 2px solid {td_border}; position: sticky; top: 0; z-index: 10;">
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 700;">Paint Float</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 700; width: 110px;">MODEL</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 60px; word-wrap: break-word; white-space: normal;">TOTAL FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 60px; word-wrap: break-word; white-space: normal;">PBS FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 80px; word-wrap: break-word; white-space: normal;">PBS TO POLISHING</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 80px; word-wrap: break-word; white-space: normal;">POLISHING TO TOPCOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 100px; max-width: 120px; word-wrap: break-word; white-space: normal;">TOPCOAT TO WETSANDING G ROOFBLACK</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 100px; max-width: 120px; word-wrap: break-word; white-space: normal;">TOPCOAT TO WETSANDING G FRESH</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 100px; max-width: 120px; word-wrap: break-word; white-space: normal;">WETSANDING G TO SEALANT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 80px; max-width: 100px; word-wrap: break-word; white-space: normal;">TOTAL UPTO SEALANT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 80px; max-width: 100px; word-wrap: break-word; white-space: normal;">PT ENTRY TO SEALANT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 80px; max-width: 100px; word-wrap: break-word; white-space: normal;">BIW LIFTING G TO PT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 60px; word-wrap: break-word; white-space: normal;">PT BYPASS</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 60px; word-wrap: break-word; white-space: normal;">Today VIN</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1781,12 +1802,12 @@ with tcf_tabs[0]:
                 font_weight = "normal"
                 
                 if 'TOTAL' in model_val and 'GRAND' not in model_val:
-                    row_bg = "#3b1f3c" if is_dark else "#f2dcdb"
-                    row_text = "#f2dcdb" if is_dark else "#5c1d1b"
+                    row_bg = "#312E81" if is_dark else "#EEF2FF"
+                    row_text = "#E0E7FF" if is_dark else "#3730A3"
                     font_weight = "bold"
                 elif 'GRAND TOTAL' in model_val:
-                    row_bg = "#4a3f00" if is_dark else "#ffffc5"
-                    row_text = "#ffff00" if is_dark else "#806000"
+                    row_bg = "#78350F" if is_dark else "#FEF3C7"
+                    row_text = "#FDE68A" if is_dark else "#92400E"
                     font_weight = "bold"
                     
                 html += f'<tr style="background-color: {row_bg}; color: {row_text}; font-weight: {font_weight}; border-bottom: 1px solid {td_border};">'
@@ -2067,41 +2088,41 @@ with tcf_tabs[0]:
         
         # Render Table 2 in beautiful HTML with rowspan/colspan
         def render_html_table_2(rows, is_dark):
-            th_bg = "#1F2937" if is_dark else "#F3F4F6"
-            th_text = "#FAFAFA" if is_dark else "#374151"
-            td_border = "#30363D" if is_dark else "#E5E7EB"
-            text_color = "#FAFAFA" if is_dark else "#111827"
+            th_bg = "#111827" if is_dark else "#F1F5F9"
+            th_text = "#F8FAFC" if is_dark else "#0F172A"
+            td_border = "#334155" if is_dark else "#CBD5E1"
+            text_color = "#F8FAFC" if is_dark else "#0F172A"
             
-            clearance_bg = "#1b4d32" if is_dark else "#d8f3e5"
-            clearance_text = "#FAFAFA" if is_dark else "#1b4d32"
+            clearance_bg = "#064E3B" if is_dark else "#DCFCE7"
+            clearance_text = "#D1FAE5" if is_dark else "#166534"
             
-            bal_bg = "#4a274c" if is_dark else "#f2dcdb"
-            bal_text = "#FAFAFA" if is_dark else "#5c1d1b"
+            bal_bg = "#581C87" if is_dark else "#F3E8FF"
+            bal_text = "#F5D0FE" if is_dark else "#6B21A8"
             
-            alert_bg = "#5c1d1d" if is_dark else "#ffd1d1"
-            alert_text = "#FAFAFA" if is_dark else "#5c1d1d"
+            alert_bg = "#7F1D1D" if is_dark else "#FEF2F2"
+            alert_text = "#FEE2E2" if is_dark else "#991B1B"
             
             html = f"""
-            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#161B22' if is_dark else '#FFFFFF'}; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12px; color: {text_color};">
+            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#1E293B' if is_dark else '#FFFFFF'}; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05);">
+            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 13px; color: {text_color};">
                 <thead>
-                    <tr style="background-color: {th_bg}; border-bottom: 1px solid {td_border};">
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; vertical-align: middle;">Engine / Battery Part No</th>
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 600; width: 180px; vertical-align: middle;">Model</th>
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; vertical-align: middle;">TA Code</th>
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 80px; white-space: normal; vertical-align: middle;">Clearance After 6:30AM</th>
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; vertical-align: middle;">Today VIN</th>
-                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; background-color: {bal_bg}; color: {bal_text}; vertical-align: middle;">Bal</th>
-                        <th colspan="3" style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600;">Paint Float</th>
-                        <th colspan="3" style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600;">Engine & Battery requirement</th>
+                    <tr style="background-color: {th_bg}; border-bottom: 1px solid {td_border}; position: sticky; top: 0; z-index: 10;">
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; vertical-align: middle;">Engine / Battery Part No</th>
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; color: {th_text}; font-weight: 700; width: 180px; vertical-align: middle;">Model</th>
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; vertical-align: middle;">TA Code</th>
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 80px; white-space: normal; vertical-align: middle;">Clearance After 6:30AM</th>
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; vertical-align: middle;">Today VIN</th>
+                        <th rowspan="2" style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; background-color: {bal_bg}; color: {bal_text}; vertical-align: middle;">Bal</th>
+                        <th colspan="3" style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700;">Paint Float</th>
+                        <th colspan="3" style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700;">Engine & Battery requirement</th>
                     </tr>
                     <tr style="background-color: {th_bg}; border-bottom: 2px solid {td_border};">
-                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600;">PBS FLOAT</th>
-                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600;">Float UPTO SEALANT</th>
-                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600;">TOTAL FLOAT</th>
-                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 90px; white-space: normal;">With respect to PBS FLOAT</th>
-                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 90px; white-space: normal;">With respect to Sealant FLOAT</th>
-                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 600; min-width: 90px; white-space: normal;">With respect to Total FLOAT</th>
+                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700;">PBS FLOAT</th>
+                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700;">Float UPTO SEALANT</th>
+                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700;">TOTAL FLOAT</th>
+                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 90px; white-space: normal;">With respect to PBS FLOAT</th>
+                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 90px; white-space: normal;">With respect to Sealant FLOAT</th>
+                        <th style="padding: 6px; border: 1px solid {td_border}; text-align: center; color: {th_text}; font-weight: 700; min-width: 90px; white-space: normal;">With respect to Total FLOAT</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2115,12 +2136,12 @@ with tcf_tabs[0]:
                 font_weight = "normal"
                 
                 if r_type == 'subtotal':
-                    row_bg = "#005b8a" if is_dark else "#00B0F0"
-                    row_text = "#FFFFFF"
+                    row_bg = "#1E40AF" if is_dark else "#DBEAFE"
+                    row_text = "#DBEAFE" if is_dark else "#1E40AF"
                     font_weight = "bold"
                 elif r_type == 'total':
-                    row_bg = "#7f7f00" if is_dark else "#ffff00"
-                    row_text = "#FAFAFA" if is_dark else "#000000"
+                    row_bg = "#78350F" if is_dark else "#FEF3C7"
+                    row_text = "#FDE68A" if is_dark else "#92400E"
                     font_weight = "bold"
                     
                 html += f'<tr style="background-color: {row_bg}; color: {row_text}; font-weight: {font_weight}; border-bottom: 1px solid {td_border};">'
@@ -2275,38 +2296,39 @@ with tcf_tabs[0]:
 
         def render_html_formatted_shortage(df, part_header_name, is_dark):
             if df.empty:
-                return "<p style='color: #6B7280; font-style: italic;'>No data available.</p>"
+                return "<p style='color: var(--text-secondary); font-style: italic;'>No data available.</p>"
                 
-            th_bg_orange = "#382315" if is_dark else "#FCE4D6"
-            th_text_orange = "#FAFAFA" if is_dark else "#73330D"
+            th_bg_orange = "#7C2D12" if is_dark else "#FFEDD5"
+            th_text_orange = "#FFEDD5" if is_dark else "#9A3412"
             
-            th_bg_blue = "#1A2B4C" if is_dark else "#BDD7EE"
-            th_text_blue = "#FAFAFA" if is_dark else "#1A2B4C"
+            th_bg_blue = "#1E3A8A" if is_dark else "#DBEAFE"
+            th_text_blue = "#DBEAFE" if is_dark else "#1E40AF"
 
-            th_bg_blue2 = "#1E3A5F" if is_dark else "#9BC2E6"
+            th_bg_blue2 = "#1E40AF" if is_dark else "#BFDBFE"
+            th_text_blue2 = "#E0F2FE" if is_dark else "#1E3A8A"
             
-            td_border = "#30363D" if is_dark else "#E5E7EB"
-            text_color = "#FAFAFA" if is_dark else "#111827"
+            td_border = "#334155" if is_dark else "#CBD5E1"
+            text_color = "#F8FAFC" if is_dark else "#0F172A"
             
-            alert_bg = "#5c1d1d" if is_dark else "#FFD1D1"
-            alert_text = "#FAFAFA" if is_dark else "#5C1D1B"
+            alert_bg = "#7F1D1D" if is_dark else "#FEF2F2"
+            alert_text = "#FEE2E2" if is_dark else "#DC2626"
             
             html = f"""
-            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#161B22' if is_dark else '#FFFFFF'}; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
-            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12px; color: {text_color};">
+            <div style="overflow-x: auto; border: 1px solid {td_border}; border-radius: 12px; margin-bottom: 2rem; background-color: {'#1E293B' if is_dark else '#FFFFFF'}; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05);">
+            <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 13px; color: {text_color};">
                 <thead>
-                    <tr style="border-bottom: 2px solid {td_border};">
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: bold;">{part_header_name}</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: bold; width: 220px;">Model</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: bold;">LINE</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Clearance After 6:30AM</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Today VIN</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Paint TOTAL FLOAT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">PBS FLOAT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: bold;">Cabs Float UPTO SEALANT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue}; font-weight: bold;">Shortage PBS FLOAT</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue}; font-weight: bold;">Shortage Upto Sealant</th>
-                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue}; font-weight: bold;">Shortage TOTAL FLOAT</th>
+                    <tr style="border-bottom: 2px solid {td_border}; position: sticky; top: 0; z-index: 10;">
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: 700;">{part_header_name}</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: left; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: 700; width: 220px;">Model</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_orange}; color: {th_text_orange}; font-weight: 700;">LINE</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: 700;">Clearance After 6:30AM</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: 700;">Today VIN</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: 700;">Paint TOTAL FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: 700;">PBS FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue}; color: {th_text_blue}; font-weight: 700;">Cabs Float UPTO SEALANT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue2}; font-weight: 700;">Shortage PBS FLOAT</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue2}; font-weight: 700;">Shortage Upto Sealant</th>
+                        <th style="padding: 10px 8px; border: 1px solid {td_border}; text-align: center; background-color: {th_bg_blue2}; color: {th_text_blue2}; font-weight: 700;">Shortage TOTAL FLOAT</th>
                     </tr>
                 </thead>
                 <tbody>
