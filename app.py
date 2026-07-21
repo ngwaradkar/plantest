@@ -424,10 +424,11 @@ else:
 detected_files = dl.detect_and_classify_files(active_dir)
 
 all_categories = [
-    'BOM', 'FLOAT_REPORT', 
-    'TCF1_WIRING_STOCK', 'TCF2_WIRING_STOCK', 
+    'BOM', 
+    'FLOAT_REPORT', 
+    'TCF1_VGL', 'TCF2_VGL',
     'TCF1_ALTROZ_COCKPIT_STOCK', 'TCF1_NOVA_COCKPIT_STOCK', 'TCF2_COCKPIT_STOCK',
-    'TCF1_VGL', 'TCF2_VGL'
+    'TCF1_WIRING_STOCK', 'TCF2_WIRING_STOCK'
 ]
 
 loaded_data = {}
@@ -531,6 +532,9 @@ with config_expander:
         except Exception:
             pass
         
+        status_items = []
+        seq_num = 1
+        
         # Populate loaded_data
         for category in all_categories:
             detected_path = detected_files.get(category)
@@ -574,7 +578,24 @@ with config_expander:
                 status_icon = "🔴 Missing"
                 source_label = "(Pending for upload)"
                 
-            st.markdown(f"**{display_name}**: {status_icon} <small style='color:#8896AB'>{source_label}</small>", unsafe_allow_html=True)
+            status_items.append((seq_num, display_name, status_icon, source_label))
+            seq_num += 1
+
+        is_dark_theme = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+        sub_text_color = "#94A3B8" if is_dark_theme else "#64748B"
+        label_color = "#FAFAFA" if is_dark_theme else "#1E293B"
+
+        status_html = "<div style='font-family: \"Inter\", sans-serif; font-size: 13px; line-height: 1.8; margin-top: 8px;'>"
+        for num, name, icon, src in status_items:
+            status_html += f"""
+            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                <span style="font-weight: 700; width: 255px; color: {label_color}; display: inline-block; flex-shrink: 0;">{num}. {name}:</span>
+                <span style="margin-right: 12px; flex-shrink: 0;">{icon}</span>
+                <span style="color: {sub_text_color}; font-size: 12px; word-break: break-all;">{src}</span>
+            </div>
+            """
+        status_html += "</div>"
+        st.markdown(status_html, unsafe_allow_html=True)
             
     with col_engine:
         st.markdown("#### ⚙️ Engine Starting Stocks")
