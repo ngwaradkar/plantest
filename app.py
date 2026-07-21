@@ -2313,23 +2313,28 @@ with tcf_tabs[0]:
                             
             today_vin_dict = {}
             if tcf1_drops is not None and not tcf1_drops.empty:
-                if 'Part_Mapped' not in tcf1_drops.columns:
-                    tcf1_drops['Part_Mapped'] = tcf1_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
-                for p, count in tcf1_drops['Part_Mapped'].value_counts().items():
+                mapped_1 = tcf1_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
+                for p, count in mapped_1.value_counts().items():
                     if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
                     
             if tcf2_drops is not None and not tcf2_drops.empty:
-                if 'Part_Mapped' not in tcf2_drops.columns:
-                    tcf2_drops['Part_Mapped'] = tcf2_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
-                for p, count in tcf2_drops['Part_Mapped'].value_counts().items():
+                mapped_2 = tcf2_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
+                for p, count in mapped_2.value_counts().items():
                     if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
 
             table_rows = []
             header_part_name = 'Cockpit Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
             
+            stk_1 = stock_tcf1 if stock_tcf1 is not None else {}
+            stk_2 = stock_tcf2 if stock_tcf2 is not None else {}
+
             for part, mdls in part_to_models.items():
                 line = part_to_line.get(part, 'TCF1')
-                stock = (stock_tcf1.get(part, 0) if line == 'TCF1' else stock_tcf2.get(part, 0)) if stock_tcf1 or stock_tcf2 else 0
+                stock_dict = stk_1 if line == 'TCF1' else stk_2
+                if stock_dict and part not in stock_dict:
+                    continue
+
+                stock = stock_dict.get(part, 0)
                 today_vin = today_vin_dict.get(part, 0)
                 pbs = pbs_dict.get(part, 0)
                 sealant = sealant_dict.get(part, 0)
@@ -2357,8 +2362,8 @@ with tcf_tabs[0]:
                 
             return pd.DataFrame(table_rows)
 
-        df_cpt_shortage = build_formatted_shortage_table('Cockpit', true_cockpit_tcf1, true_cockpit_tcf2, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
-        df_wir_shortage = build_formatted_shortage_table('Front Wiring', true_wiring_tcf1, true_wiring_tcf2, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
+        df_cpt_shortage = build_formatted_shortage_table('Cockpit', tcf1_cockpit_start, tcf2_cockpit_start, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
+        df_wir_shortage = build_formatted_shortage_table('Front Wiring', tcf1_wiring_start, tcf2_wiring_start, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
 
         def render_html_formatted_shortage(df, part_header_name, is_dark):
             if df.empty:
