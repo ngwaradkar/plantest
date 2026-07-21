@@ -987,7 +987,7 @@ tcf_tabs = st.tabs([
     "🏭 TCF 1 Line (Altroz/Punch/Nova)", 
     "🏭 TCF 2 Line (Harrier/Safari)", 
     "🔍 Total Float Details & Search",
-    "📊 Combined Summary & Material Shortages"
+    "📋 Quality Hold Registry"
 ])
 
 # Helper function to style allocation dataframe rows
@@ -1433,32 +1433,14 @@ with tcf_tabs[2]:
 with tcf_tabs[3]:
     render_total_float_details_view(temp_float_df, default_line="All")
 
-# ----------------- TAB 5: COMBINED SUMMARY & SHORTAGES -----------------
+# ----------------- TAB 5: QUALITY HOLD REGISTRY -----------------
 with tcf_tabs[4]:
-    st.markdown("### 📊 Combined Buffer Performance")
+    st.markdown("### 📋 Quality Hold Registry")
+    st.markdown("Overview of all vehicles currently placed on quality hold in the Paint Shop and PBS buffer.")
     
-    # Combined Metrics
-    tot_pbs = len(float_df[float_df['PBS LIFT'].notna()])
-    tot_hold = len(float_df[float_df['PBS LIFT'].notna() & float_df['HOLD BY'].notna()])
-    tot_ready = ready_count + ready_count_tcf2
-    tot_blocked = blocked_count + blocked_count_tcf2
-    
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Total PBS Inventory", f"{tot_pbs} cabs")
-    metric_cols[1].metric("Quality Holds (PBS)", f"{tot_hold} cabs", help="Cabs in PBS on Quality hold")
-    metric_cols[2].metric("Total Clear to Build (CTB)", f"{tot_ready} cabs", delta=f"{int(tot_ready/max(1, tot_pbs-tot_hold)*100)}% CTB Rate")
-    metric_cols[3].metric("Total Blocked", f"{tot_blocked} cabs", delta=f"{int(tot_blocked/max(1, tot_pbs-tot_hold)*100)}% Stock Out Rate", delta_color="inverse")
-    
-    st.markdown("---")
-    
-    # Quality Holds Section
-    st.markdown("### 🛑 PBS Quality Holds Registry")
-    
-    # Avoid duplicate BIW numbers and sort by SHOP (TCF1 to TCF2)
+    # 1. Compute PBS Quality Holds
     if not pbs_on_hold.empty:
         pbs_on_hold_cleaned = pbs_on_hold.drop_duplicates(subset=['BIW NUMBER']).sort_values(by=['SHOP', 'PBS LIFT'], ascending=[True, True]).copy()
-        
-        # Add Model column by mapping Short Vehicle Code to BOM's Engine part, then mapping Engine part to Model name
         if bom_df is not None and not bom_df.empty:
             vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
             short_vcs = pbs_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str[:9]
@@ -1467,7 +1449,6 @@ with tcf_tabs[4]:
         else:
             pbs_on_hold_cleaned['Model'] = pd.Series(dtype='object', index=pbs_on_hold_cleaned.index)
             
-        # Override for Tayrona
         if 'PRODUCT' in pbs_on_hold_cleaned.columns:
             is_tayrona = pbs_on_hold_cleaned['PRODUCT'].astype(str).str.strip().str.upper().str.contains('TAYRONA') | \
                          pbs_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
@@ -1477,7 +1458,6 @@ with tcf_tabs[4]:
         pbs_on_hold_cleaned['Model'] = np.where(is_tayrona, 'SAFARI EV', pbs_on_hold_cleaned['Model'])
         pbs_on_hold_cleaned['Model'] = pbs_on_hold_cleaned['Model'].fillna('—')
             
-        # Standardize Colour column name
         colour_col = None
         for col in pbs_on_hold_cleaned.columns:
             if str(col).strip().upper() in ['COLOUR', 'COLOR']:
@@ -1489,38 +1469,107 @@ with tcf_tabs[4]:
             pbs_on_hold_cleaned['Colour'] = '—'
     else:
         pbs_on_hold_cleaned = pd.DataFrame()
-        
+
+    # 2. Compute Paint Shop Quality Holds (from PTCED to before PBS Lift)
+    if float_df is not None and not float_df.empty:
+        ps_hold_mask = float_df['PBS LIFT'].isna() & float_df['PTCED'].notna() & float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.strip() != 'nan')
+        paintshop_on_hold = float_df[ps_hold_mask].copy()
+    else:
+        paintshop_on_hold = pd.DataFrame()
+
+    if not paintshop_on_hold.empty:
+        paintshop_on_hold_cleaned = paintshop_on_hold.drop_duplicates(subset=['BIW NUMBER']).sort_values(by=['SHOP', 'PTCED'], ascending=[True, True]).copy()
+        if bom_df is not None and not bom_df.empty:
+            vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
+            short_vcs = paintshop_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str[:9]
+            mapped_engines = short_vcs.map(vc_to_engine)
+            paintshop_on_hold_cleaned['Model'] = mapped_engines.map(engine_to_model)
+        else:
+            paintshop_on_hold_cleaned['Model'] = pd.Series(dtype='object', index=paintshop_on_hold_cleaned.index)
+            
+        if 'PRODUCT' in paintshop_on_hold_cleaned.columns:
+            is_tayrona = paintshop_on_hold_cleaned['PRODUCT'].astype(str).str.strip().str.upper().str.contains('TAYRONA') | \
+                         paintshop_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+        else:
+            is_tayrona = paintshop_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+            
+        paintshop_on_hold_cleaned['Model'] = np.where(is_tayrona, 'SAFARI EV', paintshop_on_hold_cleaned['Model'])
+        paintshop_on_hold_cleaned['Model'] = paintshop_on_hold_cleaned['Model'].fillna('—')
+            
+        colour_col = None
+        for col in paintshop_on_hold_cleaned.columns:
+            if str(col).strip().upper() in ['COLOUR', 'COLOR']:
+                colour_col = col
+                break
+        if colour_col:
+            paintshop_on_hold_cleaned['Colour'] = paintshop_on_hold_cleaned[colour_col].fillna('—')
+        else:
+            paintshop_on_hold_cleaned['Colour'] = '—'
+    else:
+        paintshop_on_hold_cleaned = pd.DataFrame()
+
+    tot_pbs_h = len(pbs_on_hold_cleaned)
+    tot_ps_h = len(paintshop_on_hold_cleaned)
+
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("PBS Buffer Holds", f"{tot_pbs_h} cabs", help="Cabs in PBS Buffer on Quality hold")
+    metric_cols[1].metric("Paint Shop Holds", f"{tot_ps_h} cabs", help="Cabs in Paint Shop (PTCED to before PBS Lift) on Quality hold")
+    metric_cols[2].metric("Total Quality Holds", f"{tot_pbs_h + tot_ps_h} cabs")
+    
+    st.markdown("---")
+    
+    # --- SECTION 1: PBS QUALITY HOLDS ---
+    st.markdown("### 🛑 PBS Quality Holds Registry (PBS Buffer)")
     if pbs_on_hold_cleaned.empty:
         st.success("🎉 Excellent! No cabs currently on quality hold in the PBS buffer.")
     else:
-        st.warning(f"⚠️ {len(pbs_on_hold_cleaned)} unique cabs are currently held in PBS and skipped from Clear-to-Build checks.")
+        st.warning(f"⚠️ {tot_pbs_h} unique cabs are currently held in PBS and skipped from Clear-to-Build checks.")
         
-        # Select and order display columns
-        display_hold_cols = []
-        possible_cols = ['BIW NUMBER', 'Model', 'Colour', 'VIN', 'VEHICLE CODE', 'SHOP', 'HOLD BY', 'REASONS S', 'PBS LIFT']
-        for col in possible_cols:
-            if col in pbs_on_hold_cleaned.columns:
-                display_hold_cols.append(col)
-                
+        display_hold_cols = [col for col in ['BIW NUMBER', 'Model', 'Colour', 'VIN', 'VEHICLE CODE', 'SHOP', 'HOLD BY', 'REASONS S', 'PBS LIFT'] if col in pbs_on_hold_cleaned.columns]
         st.dataframe(
             pbs_on_hold_cleaned[display_hold_cols],
             use_container_width=True,
             hide_index=True
         )
         
-        # Export to Excel option
         import io
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            pbs_on_hold_cleaned[display_hold_cols].to_excel(writer, index=False, sheet_name='Quality Holds')
-        excel_data = excel_buffer.getvalue()
-        
+            pbs_on_hold_cleaned[display_hold_cols].to_excel(writer, index=False, sheet_name='PBS Quality Holds')
         st.download_button(
-            label="📥 Export Quality Holds to Excel",
-            data=excel_data,
+            label="📥 Export PBS Quality Holds to Excel",
+            data=excel_buffer.getvalue(),
             file_name="pbs_quality_holds.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="export_quality_holds"
+            key="export_pbs_quality_holds"
+        )
+
+    st.markdown("---")
+
+    # --- SECTION 2: PAINT SHOP QUALITY HOLDS ---
+    st.markdown("### 🎨 Paint Shop Quality Holds Registry (PTCED to Before PBS Lift)")
+    if paintshop_on_hold_cleaned.empty:
+        st.success("🎉 Excellent! No cabs currently on quality hold in the Paint Shop stage.")
+    else:
+        st.warning(f"⚠️ {tot_ps_h} unique cabs are currently held in Paint Shop (between PTCED and before PBS Lift).")
+        
+        display_ps_cols = [col for col in ['BIW NUMBER', 'Model', 'Colour', 'VIN', 'VEHICLE CODE', 'SHOP', 'HOLD BY', 'REASONS S', 'PTCED', 'SEALANT', 'TOPCOAT'] if col in paintshop_on_hold_cleaned.columns]
+        st.dataframe(
+            paintshop_on_hold_cleaned[display_ps_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        import io
+        excel_buffer_ps = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer_ps, engine='openpyxl') as writer:
+            paintshop_on_hold_cleaned[display_ps_cols].to_excel(writer, index=False, sheet_name='Paint Shop Quality Holds')
+        st.download_button(
+            label="📥 Export Paint Shop Quality Holds to Excel",
+            data=excel_buffer_ps.getvalue(),
+            file_name="paintshop_quality_holds.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="export_paintshop_quality_holds"
         )
         
 
