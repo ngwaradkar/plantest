@@ -1956,11 +1956,13 @@ with tcf_tabs[0]:
         today_vin_dict = {}
         for vgl_df in [tcf1_drops, tcf2_drops]:
             if vgl_df is not None and not vgl_df.empty:
-                if 'Engine_Part' not in vgl_df.columns and 'VEHICLE CODE' in vgl_df.columns:
-                    vgl_df['Engine_Part'] = vgl_df['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
-                if 'Engine_Part' in vgl_df.columns:
+                vc_col = 'VEHICLE CODE' if 'VEHICLE CODE' in vgl_df.columns else ('VC' if 'VC' in vgl_df.columns else None)
+                if vc_col:
+                    vgl_df['Engine_Part'] = vgl_df[vc_col].astype(str).str.strip().str[:9].map(vc_to_engine)
                     for part in vgl_df['Engine_Part'].dropna().unique():
                         p_str = str(part).strip()
+                        if p_str in ['None', 'nan', '0', '']:
+                            continue
                         sub = vgl_df[vgl_df['Engine_Part'] == part]
                         cnt = int(sub['VIN_Count'].sum()) if 'VIN_Count' in sub.columns else len(sub)
                         today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + cnt
@@ -2359,19 +2361,16 @@ with tcf_tabs[0]:
                                 sealant_dict[p_clean] = sealant_dict.get(p_clean, 0) + 1
                             
             today_vin_dict = {}
-            if tcf1_drops is not None and not tcf1_drops.empty:
-                vc_col1 = 'VEHICLE CODE' if 'VEHICLE CODE' in tcf1_drops.columns else ('VC' if 'VC' in tcf1_drops.columns else None)
-                if vc_col1:
-                    mapped_1 = tcf1_drops[vc_col1].astype(str).str.strip().str[:9].map(vc_to_part)
-                    for p, count in mapped_1.value_counts().items():
-                        if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
-                    
-            if tcf2_drops is not None and not tcf2_drops.empty:
-                vc_col2 = 'VEHICLE CODE' if 'VEHICLE CODE' in tcf2_drops.columns else ('VC' if 'VC' in tcf2_drops.columns else None)
-                if vc_col2:
-                    mapped_2 = tcf2_drops[vc_col2].astype(str).str.strip().str[:9].map(vc_to_part)
-                    for p, count in mapped_2.value_counts().items():
-                        if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
+            for vgl_df in [tcf1_drops, tcf2_drops]:
+                if vgl_df is not None and not vgl_df.empty:
+                    vc_col = 'VEHICLE CODE' if 'VEHICLE CODE' in vgl_df.columns else ('VC' if 'VC' in vgl_df.columns else None)
+                    if vc_col:
+                        mapped_parts = vgl_df[vc_col].astype(str).str.strip().str[:9].map(vc_to_part)
+                        for idx, part in mapped_parts.items():
+                            if pd.notna(part) and str(part).strip() not in ['None', 'nan', '0', '']:
+                                p_str = str(part).strip()
+                                cnt = int(vgl_df.loc[idx, 'VIN_Count']) if 'VIN_Count' in vgl_df.columns and pd.notna(vgl_df.loc[idx, 'VIN_Count']) else 1
+                                today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + cnt
 
             table_rows = []
             header_part_name = 'Cockpit Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
