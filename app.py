@@ -426,6 +426,7 @@ detected_files = dl.detect_and_classify_files(active_dir)
 all_categories = [
     'BOM', 
     'FLOAT_REPORT', 
+    'FLOAT_PAINT_SUMMARY',
     'TCF1_VGL', 'TCF2_VGL',
     'TCF1_ALTROZ_COCKPIT_STOCK', 'TCF1_NOVA_COCKPIT_STOCK', 'TCF2_COCKPIT_STOCK',
     'TCF1_WIRING_STOCK', 'TCF2_WIRING_STOCK'
@@ -438,7 +439,7 @@ loaded_data = {}
 # The expander starts collapsed if the core files are already auto-loaded.
 db_bom_exists = dl.load_bom_from_db() is not None
 default_bom_path = detected_files.get('BOM')
-default_float_path = detected_files.get('FLOAT_REPORT')
+default_float_path = detected_files.get('FLOAT_REPORT') or detected_files.get('FLOAT_PAINT_SUMMARY')
 default_core_available = (db_bom_exists or default_bom_path is not None) and default_float_path is not None
 
 config_expander = st.expander(
@@ -648,10 +649,10 @@ with config_expander:
             st.toast("🔄 Engine clearances and daily report upload registries reset (Master BOM preserved)!", icon="🔄")
             st.rerun()
 
-core_available = 'BOM' in loaded_data and 'FLOAT_REPORT' in loaded_data
+core_available = 'BOM' in loaded_data and ('FLOAT_REPORT' in loaded_data or 'FLOAT_PAINT_SUMMARY' in loaded_data)
 
 if not core_available:
-    st.warning("⚠️ Please ensure the **Master BOM** and **PPC Float Report** are available in the database/workspace or uploaded above to run the dashboard.")
+    st.warning("⚠️ Please ensure the **Master BOM** and **PPC Float Report** (or **Paint Float Summary Report**) are available in the database/workspace or uploaded above to run the dashboard.")
     st.stop()
 
 # ----------------- GENERATE REPORT CONTROL -----------------
@@ -688,8 +689,9 @@ try:
             except Exception:
                 pass
         
-        # 2. Load Float Report
-        float_df = dl.load_float_report(loaded_data['FLOAT_REPORT'])
+        # 2. Load Float Reports
+        float_df = dl.load_float_report(loaded_data['FLOAT_REPORT']) if 'FLOAT_REPORT' in loaded_data else None
+        paint_summary_dict = dl.load_paint_summary_report(loaded_data['FLOAT_PAINT_SUMMARY']) if 'FLOAT_PAINT_SUMMARY' in loaded_data else None
         
         # 3. Load VGL drops
         tcf1_drops = dl.load_vgl(loaded_data['TCF1_VGL']) if 'TCF1_VGL' in loaded_data else None
@@ -842,16 +844,20 @@ try:
         
         # ----------------- STAGEWISE MATERIAL SUMMARY -----------------
         # Get stages for all float report cabs
-        float_stages_df = ae.get_paint_float_stages(float_df)
-        
-        # Combined stock registry for shortage calculation
-        combined_true_stocks = {
-            'engine': {**true_engine_tcf1, **true_engine_tcf2},
-            'cockpit': {**true_cockpit_tcf1, **true_cockpit_tcf2},
-            'wiring': {**true_wiring_tcf1, **true_wiring_tcf2}
-        }
-        
-        shortage_report_df = ae.calculate_stagewise_shortage(float_stages_df, bom_df, combined_true_stocks)
+        if float_df is not None and not float_df.empty:
+            float_stages_df = ae.get_paint_float_stages(float_df)
+            
+            # Combined stock registry for shortage calculation
+            combined_true_stocks = {
+                'engine': {**true_engine_tcf1, **true_engine_tcf2},
+                'cockpit': {**true_cockpit_tcf1, **true_cockpit_tcf2},
+                'wiring': {**true_wiring_tcf1, **true_wiring_tcf2}
+            }
+            
+            shortage_report_df = ae.calculate_stagewise_shortage(float_stages_df, bom_df, combined_true_stocks)
+        else:
+            float_stages_df = pd.DataFrame()
+            shortage_report_df = pd.DataFrame()
 
         # Build temp_float_df with stage, model, and engine mapping for all downstream views
         def get_summary_product_to_model(prod_name):
@@ -1596,7 +1602,7 @@ with tcf_tabs[0]:
         This report displays the paint shop buffer status by stage and model, matching the exact layout of the paint shop tracker sheet.
     """)
     
-    if float_df is not None and not float_df.empty:
+    if paint_summary_dict or (float_df is not None and not float_df.empty):
         # Map product names to internal TCF models
         def get_summary_product_to_model(prod_name):
             prod = str(prod_name).strip().upper()
@@ -1617,10 +1623,6 @@ with tcf_tabs[0]:
         def get_row_paint_stage(row):
             return ae.get_detailed_paint_summary_stage(row)
                 
-        temp_float_df = float_df.copy()
-        temp_float_df['Model_Mapped'] = temp_float_df['PRODUCT'].apply(get_summary_product_to_model)
-        temp_float_df['Stage'] = temp_float_df.apply(get_row_paint_stage, axis=1)
-        
         stages_list = [
             'PBS FLOAT', 
             'PBS TO POLISHING', 
@@ -1638,96 +1640,189 @@ with tcf_tabs[0]:
         
         rows = []
         
-        # TCF1 Line
-        tcf1_sub_df = temp_float_df[temp_float_df['SHOP'] == 'TCF1']
-        for model in tcf1_models:
-            model_df = tcf1_sub_df[tcf1_sub_df['Model_Mapped'] == model]
-            today_vin = len(tcf1_drops[tcf1_drops['Model'] == model]) if tcf1_drops is not None and not tcf1_drops.empty else 0
+        def get_today_vin_count(vgl_df, model_name):
+            if vgl_df is None or vgl_df.empty or 'Model' not in vgl_df.columns:
+                return 0
+            sub = vgl_df[vgl_df['Model'] == model_name]
+            if 'VIN_Count' in sub.columns:
+                return int(sub['VIN_Count'].sum())
+            return len(sub)
             
-            row_data = {
+        if paint_summary_dict:
+            # Extract numbers directly from PPC_Float_Report_Paint_...
+            # TCF1 Line
+            for model in tcf1_models:
+                m_dict = paint_summary_dict.get(model, {})
+                today_vin = get_today_vin_count(tcf1_drops, model)
+                row_data = {
+                    'Paint Float': 'TCF1',
+                    'MODEL': model,
+                    'Today VIN': today_vin
+                }
+                for stage in stages_list:
+                    row_data[stage] = m_dict.get(stage, 0)
+                row_data['TOTAL UPTO SEALANT'] = m_dict.get('TOTAL UPTO SEALANT', (
+                    row_data['PBS FLOAT'] + 
+                    row_data['PBS TO POLISHING'] + 
+                    row_data['POLISHING TO TOPCOAT'] + 
+                    row_data['TOPCOAT TO WETSANDING G ROOFBLACK'] + 
+                    row_data['TOPCOAT TO WETSANDING G FRESH'] + 
+                    row_data['WETSANDING G TO SEALANT']
+                ))
+                row_data['TOTAL FLOAT'] = m_dict.get('TOTAL FLOAT', row_data['TOTAL UPTO SEALANT'] + row_data.get('PT ENTRY TO SEALANT', 0) + row_data.get('BIW LIFTING G TO PT', 0) + row_data.get('PT BYPASS', 0))
+                rows.append(row_data)
+
+            # TCF1 TOTAL
+            tcf1_subtotal = {
                 'Paint Float': 'TCF1',
-                'MODEL': model,
-                'Today VIN': today_vin
+                'MODEL': 'TCF1 TOTAL',
+                'Today VIN': sum(r['Today VIN'] for r in rows if r['Paint Float'] == 'TCF1')
             }
-            
-            total_float = 0
-            for stage in stages_list:
-                cnt = len(model_df[model_df['Stage'] == stage])
-                row_data[stage] = cnt
-                total_float += cnt
-                
-            row_data['TOTAL FLOAT'] = total_float
-            row_data['TOTAL UPTO SEALANT'] = (
-                row_data['PBS FLOAT'] + 
-                row_data['PBS TO POLISHING'] + 
-                row_data['POLISHING TO TOPCOAT'] + 
-                row_data['TOPCOAT TO WETSANDING G ROOFBLACK'] + 
-                row_data['TOPCOAT TO WETSANDING G FRESH'] + 
-                row_data['WETSANDING G TO SEALANT']
-            )
-            rows.append(row_data)
-            
-        # TCF1 TOTAL
-        tcf1_subtotal = {
-            'Paint Float': 'TCF1',
-            'MODEL': 'TCF1 TOTAL',
-            'Today VIN': sum(r['Today VIN'] for r in rows if r['Paint Float'] == 'TCF1')
-        }
-        for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
-            tcf1_subtotal[col] = sum(r[col] for r in rows if r['Paint Float'] == 'TCF1')
-        rows.append(tcf1_subtotal)
-        
-        # TCF2 Line
-        tcf2_sub_df = temp_float_df[temp_float_df['SHOP'] == 'TCF2']
-        tcf2_rows_start_idx = len(rows)
-        for model in tcf2_models:
-            model_df = tcf2_sub_df[tcf2_sub_df['Model_Mapped'] == model]
-            today_vin = len(tcf2_drops[tcf2_drops['Model'] == model]) if tcf2_drops is not None and not tcf2_drops.empty else 0
-            
-            row_data = {
+            for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
+                tcf1_subtotal[col] = sum(r[col] for r in rows if r['Paint Float'] == 'TCF1')
+            rows.append(tcf1_subtotal)
+
+            # TCF2 Line
+            tcf2_rows_start_idx = len(rows)
+            for model in tcf2_models:
+                m_dict = paint_summary_dict.get(model, {})
+                today_vin = get_today_vin_count(tcf2_drops, model)
+                row_data = {
+                    'Paint Float': 'TCF2',
+                    'MODEL': model,
+                    'Today VIN': today_vin
+                }
+                for stage in stages_list:
+                    row_data[stage] = m_dict.get(stage, 0)
+                row_data['TOTAL UPTO SEALANT'] = m_dict.get('TOTAL UPTO SEALANT', (
+                    row_data['PBS FLOAT'] + 
+                    row_data['PBS TO POLISHING'] + 
+                    row_data['POLISHING TO TOPCOAT'] + 
+                    row_data['TOPCOAT TO WETSANDING G ROOFBLACK'] + 
+                    row_data['TOPCOAT TO WETSANDING G FRESH'] + 
+                    row_data['WETSANDING G TO SEALANT']
+                ))
+                row_data['TOTAL FLOAT'] = m_dict.get('TOTAL FLOAT', row_data['TOTAL UPTO SEALANT'] + row_data.get('PT ENTRY TO SEALANT', 0) + row_data.get('BIW LIFTING G TO PT', 0) + row_data.get('PT BYPASS', 0))
+                rows.append(row_data)
+
+            # TCF2 TOTAL
+            tcf2_subtotal = {
                 'Paint Float': 'TCF2',
-                'MODEL': model,
-                'Today VIN': today_vin
+                'MODEL': 'TCF2 TOTAL',
+                'Today VIN': sum(r['Today VIN'] for r in rows[tcf2_rows_start_idx:] if r['Paint Float'] == 'TCF2')
             }
+            for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
+                tcf2_subtotal[col] = sum(r[col] for r in rows[tcf2_rows_start_idx:] if r['Paint Float'] == 'TCF2')
+            rows.append(tcf2_subtotal)
+
+            # GRAND TOTAL
+            grand_total = {
+                'Paint Float': '',
+                'MODEL': 'GRAND TOTAL',
+                'Today VIN': tcf1_subtotal['Today VIN'] + tcf2_subtotal['Today VIN']
+            }
+            for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
+                grand_total[col] = tcf1_subtotal[col] + tcf2_subtotal[col]
+            rows.append(grand_total)
+
+            summary_df = pd.DataFrame(rows)
+        elif float_df is not None and not float_df.empty:
+            temp_float_df = float_df.copy()
+            temp_float_df['Model_Mapped'] = temp_float_df['PRODUCT'].apply(get_summary_product_to_model)
+            temp_float_df['Stage'] = temp_float_df.apply(get_row_paint_stage, axis=1)
             
-            total_float = 0
-            for stage in stages_list:
-                cnt = len(model_df[model_df['Stage'] == stage])
-                row_data[stage] = cnt
-                total_float += cnt
+            # TCF1 Line
+            tcf1_sub_df = temp_float_df[temp_float_df['SHOP'] == 'TCF1']
+            for model in tcf1_models:
+                model_df = tcf1_sub_df[tcf1_sub_df['Model_Mapped'] == model]
+                today_vin = get_today_vin_count(tcf1_drops, model)
                 
-            row_data['TOTAL FLOAT'] = total_float
-            row_data['TOTAL UPTO SEALANT'] = (
-                row_data['PBS FLOAT'] + 
-                row_data['PBS TO POLISHING'] + 
-                row_data['POLISHING TO TOPCOAT'] + 
-                row_data['TOPCOAT TO WETSANDING G ROOFBLACK'] + 
-                row_data['TOPCOAT TO WETSANDING G FRESH'] + 
-                row_data['WETSANDING G TO SEALANT']
-            )
-            rows.append(row_data)
+                row_data = {
+                    'Paint Float': 'TCF1',
+                    'MODEL': model,
+                    'Today VIN': today_vin
+                }
+                
+                total_float = 0
+                for stage in stages_list:
+                    cnt = len(model_df[model_df['Stage'] == stage])
+                    row_data[stage] = cnt
+                    total_float += cnt
+                    
+                row_data['TOTAL FLOAT'] = total_float
+                row_data['TOTAL UPTO SEALANT'] = (
+                    row_data['PBS FLOAT'] + 
+                    row_data['PBS TO POLISHING'] + 
+                    row_data['POLISHING TO TOPCOAT'] + 
+                    row_data['TOPCOAT TO WETSANDING G ROOFBLACK'] + 
+                    row_data['TOPCOAT TO WETSANDING G FRESH'] + 
+                    row_data['WETSANDING G TO SEALANT']
+                )
+                rows.append(row_data)
+                
+            # TCF1 TOTAL
+            tcf1_subtotal = {
+                'Paint Float': 'TCF1',
+                'MODEL': 'TCF1 TOTAL',
+                'Today VIN': sum(r['Today VIN'] for r in rows if r['Paint Float'] == 'TCF1')
+            }
+            for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
+                tcf1_subtotal[col] = sum(r[col] for r in rows if r['Paint Float'] == 'TCF1')
+            rows.append(tcf1_subtotal)
             
-        # TCF2 TOTAL
-        tcf2_subtotal = {
-            'Paint Float': 'TCF2',
-            'MODEL': 'TCF2 TOTAL',
-            'Today VIN': sum(r['Today VIN'] for r in rows[tcf2_rows_start_idx:] if r['Paint Float'] == 'TCF2')
-        }
-        for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
-            tcf2_subtotal[col] = sum(r[col] for r in rows[tcf2_rows_start_idx:] if r['Paint Float'] == 'TCF2')
-        rows.append(tcf2_subtotal)
-        
-        # GRAND TOTAL
-        grand_total = {
-            'Paint Float': '',
-            'MODEL': 'GRAND TOTAL',
-            'Today VIN': tcf1_subtotal['Today VIN'] + tcf2_subtotal['Today VIN']
-        }
-        for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
-            grand_total[col] = tcf1_subtotal[col] + tcf2_subtotal[col]
-        rows.append(grand_total)
-        
-        summary_df = pd.DataFrame(rows)
+            # TCF2 Line
+            tcf2_sub_df = temp_float_df[temp_float_df['SHOP'] == 'TCF2']
+            tcf2_rows_start_idx = len(rows)
+            for model in tcf2_models:
+                model_df = tcf2_sub_df[tcf2_sub_df['Model_Mapped'] == model]
+                today_vin = get_today_vin_count(tcf2_drops, model)
+                
+                row_data = {
+                    'Paint Float': 'TCF2',
+                    'MODEL': model,
+                    'Today VIN': today_vin
+                }
+                
+                total_float = 0
+                for stage in stages_list:
+                    cnt = len(model_df[model_df['Stage'] == stage])
+                    row_data[stage] = cnt
+                    total_float += cnt
+                    
+                row_data['TOTAL FLOAT'] = total_float
+                row_data['TOTAL UPTO SEALANT'] = (
+                    row_data['PBS FLOAT'] + 
+                    row_data['PBS TO POLISHING'] + 
+                    row_data['POLISHING TO TOPCOAT'] + 
+                    row_data['TOPCOAT TO WETSANDING G ROOFBLACK'] + 
+                    row_data['TOPCOAT TO WETSANDING G FRESH'] + 
+                    row_data['WETSANDING G TO SEALANT']
+                )
+                rows.append(row_data)
+                
+            # TCF2 TOTAL
+            tcf2_subtotal = {
+                'Paint Float': 'TCF2',
+                'MODEL': 'TCF2 TOTAL',
+                'Today VIN': sum(r['Today VIN'] for r in rows[tcf2_rows_start_idx:] if r['Paint Float'] == 'TCF2')
+            }
+            for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
+                tcf2_subtotal[col] = sum(r[col] for r in rows[tcf2_rows_start_idx:] if r['Paint Float'] == 'TCF2')
+            rows.append(tcf2_subtotal)
+            
+            # GRAND TOTAL
+            grand_total = {
+                'Paint Float': '',
+                'MODEL': 'GRAND TOTAL',
+                'Today VIN': tcf1_subtotal['Today VIN'] + tcf2_subtotal['Today VIN']
+            }
+            for col in ['TOTAL FLOAT'] + stages_list + ['TOTAL UPTO SEALANT']:
+                grand_total[col] = tcf1_subtotal[col] + tcf2_subtotal[col]
+            rows.append(grand_total)
+            
+            summary_df = pd.DataFrame(rows)
+        else:
+            summary_df = pd.DataFrame()
         
         # Rename columns to match user copy perfectly
         display_col_mapping = {
@@ -1850,18 +1945,16 @@ with tcf_tabs[0]:
             
         # Today VIN per engine part
         today_vin_dict = {}
-        if tcf1_drops is not None and not tcf1_drops.empty:
-            if 'Engine_Part' not in tcf1_drops.columns:
-                tcf1_drops['Engine_Part'] = tcf1_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
-            for part in tcf1_drops['Engine_Part'].dropna().unique():
-                p_str = str(part).strip()
-                today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + len(tcf1_drops[tcf1_drops['Engine_Part'] == part])
-        if tcf2_drops is not None and not tcf2_drops.empty:
-            if 'Engine_Part' not in tcf2_drops.columns:
-                tcf2_drops['Engine_Part'] = tcf2_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
-            for part in tcf2_drops['Engine_Part'].dropna().unique():
-                p_str = str(part).strip()
-                today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + len(tcf2_drops[tcf2_drops['Engine_Part'] == part])
+        for vgl_df in [tcf1_drops, tcf2_drops]:
+            if vgl_df is not None and not vgl_df.empty:
+                if 'Engine_Part' not in vgl_df.columns and 'VEHICLE CODE' in vgl_df.columns:
+                    vgl_df['Engine_Part'] = vgl_df['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
+                if 'Engine_Part' in vgl_df.columns:
+                    for part in vgl_df['Engine_Part'].dropna().unique():
+                        p_str = str(part).strip()
+                        sub = vgl_df[vgl_df['Engine_Part'] == part]
+                        cnt = int(sub['VIN_Count'].sum()) if 'VIN_Count' in sub.columns else len(sub)
+                        today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + cnt
                 
         # Float demands per engine part
         pbs_float_dict = {}

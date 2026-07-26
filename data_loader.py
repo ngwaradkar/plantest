@@ -164,33 +164,246 @@ def load_float_report(filepath_or_buffer):
     
     return df_dedup
 
-def load_vgl(filepath_or_buffer):
+def load_paint_summary_report(filepath_or_buffer):
     """
-    Loads Vehicle Generation List (.xls) which is actually HTML.
-    Expected columns: 'VEHICLE CODE', 'BIW NUMBER', 'VIN NUMBER', 'CREATED DATE', 'SHIFT',
-    and either 'ENGINE PART NO / ALTERNATE PART NO' or 'ENGINE PART NO'.
+    Loads PPC Float Report Paint Summary (HTML or Excel format) and returns aggregated model stage totals.
+    Uses dynamic header scanning and flexible row parsing to handle formatting variations across .xls and .xlsb files.
     """
     if not isinstance(filepath_or_buffer, str):
         try:
             filepath_or_buffer.seek(0)
         except Exception:
             pass
-    # Read HTML
+            
+    is_html = False
     if isinstance(filepath_or_buffer, str):
+        ext = os.path.splitext(filepath_or_buffer.lower())[1]
+        if ext in ['.xls', '.html', '.htm']:
+            try:
+                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
+                    first_chars = f.read(500)
+                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
+                        is_html = True
+            except Exception:
+                pass
+
+    if is_html:
         dfs = pd.read_html(filepath_or_buffer)
+        if not dfs:
+            return {}
+        df = dfs[0]
     else:
-        # BytesIO
-        dfs = pd.read_html(filepath_or_buffer)
-        
-    if not dfs:
-        raise ValueError("No tables found in Vehicle Generation List file.")
-        
-    df = dfs[0]
-    # Promote first row to headers if it has header labels
-    df.columns = [str(c).strip() for c in df.iloc[0]]
-    df = df.iloc[1:].reset_index(drop=True)
+        if isinstance(filepath_or_buffer, str):
+            ext = os.path.splitext(filepath_or_buffer.lower())[1]
+            if ext == '.xlsb':
+                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+            else:
+                df = pd.read_excel(filepath_or_buffer)
+        else:
+            try:
+                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+            except Exception:
+                try:
+                    filepath_or_buffer.seek(0)
+                    df = pd.read_excel(filepath_or_buffer)
+                except Exception:
+                    try:
+                        filepath_or_buffer.seek(0)
+                        dfs = pd.read_html(filepath_or_buffer)
+                        if not dfs:
+                            return {}
+                        df = dfs[0]
+                    except Exception as e:
+                        raise ValueError(f"Failed to load Paint Float Summary report: {e}")
+                
+    pf_map = {
+        'HORNBILL': 'PUNCH',
+        'NOVA': 'PUNCH.EV',
+        'ETURNA': 'HARRIER.EV',
+        'GRAVITAS': 'SAFARI',
+        'Q5': 'HARRIER',
+        'TAYRONA': 'SAFARI.EV'
+    }
     
-    # Rename columns to standard names
+    stage_cols = [
+        'TOTAL FLOAT', 'PBS FLOAT', 'PBS TO POLISHING', 'POLISHING TO TOPCOAT',
+        'TOPCOAT TO WETSANDING G ROOFBLACK', 'TOPCOAT TO WETSANDING G FRESH',
+        'WETSANDING G TO SEALANT', 'TOTAL UPTO SEALANT', 'PT ENTRY TO SEALANT',
+        'BIW LIFTING G TO PT', 'PT BYPASS'
+    ]
+    
+    col_map = {}
+    header_row_idx = None
+    for r_idx in range(min(10, len(df))):
+        row_vals = [str(x).upper().strip() for x in df.iloc[r_idx].values]
+        if any('TOTAL FLOAT' in x for x in row_vals):
+            header_row_idx = r_idx
+            for c_idx, val in enumerate(row_vals):
+                if 'TOTAL FLOAT' in val and 'TOTAL FLOAT' not in col_map:
+                    col_map['TOTAL FLOAT'] = c_idx
+                elif 'PBS FLOAT' in val:
+                    col_map['PBS FLOAT'] = c_idx
+                elif 'PBS TO POLISHING' in val:
+                    col_map['PBS TO POLISHING'] = c_idx
+                elif 'POLISHING TO TOPCOAT' in val:
+                    col_map['POLISHING TO TOPCOAT'] = c_idx
+                elif 'TOPCOAT TO WETSANDING' in val or 'TOPCOAT TO WET' in val:
+                    if 'ROOF' in val or 'BLACK' in val:
+                        col_map['TOPCOAT TO WETSANDING G ROOFBLACK'] = c_idx
+                    else:
+                        col_map['TOPCOAT TO WETSANDING G FRESH'] = c_idx
+                elif 'WETSANDING' in val and 'SEAL' in val:
+                    col_map['WETSANDING G TO SEALANT'] = c_idx
+                elif 'UPTO SEALANT' in val or 'UPTO SEALENT' in val:
+                    col_map['TOTAL UPTO SEALANT'] = c_idx
+                elif 'PT ENTRY' in val:
+                    col_map['PT ENTRY TO SEALANT'] = c_idx
+                elif 'BIW LIFTING' in val:
+                    col_map['BIW LIFTING G TO PT'] = c_idx
+                elif 'PT BYPASS' in val:
+                    col_map['PT BYPASS'] = c_idx
+            break
+            
+    # Fallback to default indices (5..15) if header parsing didn't map everything
+    default_indices = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    for stage_name, default_idx in zip(stage_cols, default_indices):
+        if stage_name not in col_map:
+            col_map[stage_name] = default_idx
+            
+    model_totals = {m: {c: 0 for c in stage_cols} for m in ['PUNCH', 'PUNCH.EV', 'HARRIER.EV', 'SAFARI', 'HARRIER', 'SAFARI.EV']}
+    
+    start_r = (header_row_idx + 1) if header_row_idx is not None else 0
+    for idx in range(start_r, len(df)):
+        row = df.iloc[idx]
+        cell_texts = [str(row.iloc[i]).strip() for i in range(min(4, len(row))) if pd.notna(row.iloc[i])]
+        full_text = ' '.join(cell_texts).upper()
+        
+        for pf_name, model in pf_map.items():
+            if pf_name in full_text and 'TOTAL' in full_text and 'GRAND' not in full_text and 'SUB' not in full_text:
+                for stage_name in stage_cols:
+                    c_idx = col_map[stage_name]
+                    if c_idx < len(row):
+                        try:
+                            v_str = str(row.iloc[c_idx]).strip()
+                            v = int(float(v_str)) if v_str and v_str.lower() != 'nan' else 0
+                        except Exception:
+                            v = 0
+                        model_totals[model][stage_name] += v
+                break
+
+    return model_totals
+
+def load_vgl(filepath_or_buffer):
+    """
+    Loads Vehicle Generation List / DPT Plan VIN Generation Report (.xls, .xlsx, .xlsb, HTML).
+    Supports both old VGL format (cab-by-cab) and new DPT Plan format (VC-grouped VIN counts).
+    """
+    if not isinstance(filepath_or_buffer, str):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
+
+    is_html = False
+    html_content = None
+    if isinstance(filepath_or_buffer, str):
+        ext = os.path.splitext(filepath_or_buffer.lower())[1]
+        if ext in ['.xls', '.html', '.htm']:
+            try:
+                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
+                    first_chars = f.read(500)
+                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
+                        is_html = True
+                        f.seek(0)
+                        html_content = f.read()
+            except Exception:
+                pass
+
+    pf_map = {
+        'HORNBILL': 'PUNCH',
+        'NOVA': 'PUNCH.EV',
+        'ETURNA': 'HARRIER.EV',
+        'GRAVITAS': 'SAFARI',
+        'Q5': 'HARRIER',
+        'TAYRONA': 'SAFARI.EV'
+    }
+
+    if is_html and html_content:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+        rows = soup.find_all('tr')
+        if rows:
+            header = [td.get_text(strip=True) for td in rows[0].find_all(['td', 'th'])]
+            header_str = ' '.join(header).upper()
+            
+            # Check if this is new DPT Plan VIN generation format
+            if 'PRODUCTFAMILY' in header_str or 'VC' in header_str or 'VIN' in header_str or 'SALES DESC' in header_str:
+                parsed_rows = []
+                current_pf = ''
+                for r in rows[1:]:
+                    tds = [td.get_text(strip=True) for td in r.find_all(['td', 'th'])]
+                    if len(tds) < 4:
+                        continue
+                    market, pf, vc, sales_desc = tds[0], tds[1], tds[2], tds[3]
+                    vin_str = tds[5] if len(tds) > 5 else (tds[4] if len(tds) > 4 else '0')
+                    
+                    if pf:
+                        current_pf = pf.strip().upper()
+                        
+                    if not vc or vc.upper() in ['TOTAL', 'GRAND TOTAL'] or market.upper() in ['TOTAL', 'GRAND TOTAL']:
+                        continue
+                        
+                    try:
+                        vin_cnt = int(float(str(vin_str).strip()))
+                    except Exception:
+                        vin_cnt = 0
+                        
+                    model = pf_map.get(current_pf, 'UNKNOWN')
+                    if model == 'UNKNOWN':
+                        for k, v in pf_map.items():
+                            if k in sales_desc.upper() or k in current_pf:
+                                model = v
+                                break
+                                
+                    parsed_rows.append({
+                        'VEHICLE CODE': str(vc).strip(),
+                        'ProductFamily': current_pf,
+                        'SALES DESCRIPTION': sales_desc,
+                        'Model': model,
+                        'VIN_Count': vin_cnt,
+                        'CREATED DATE': pd.Timestamp.now()
+                    })
+                df_res = pd.DataFrame(parsed_rows)
+                if not df_res.empty:
+                    return df_res
+
+    # Old VGL format fallback using pd.read_html / read_excel
+    if is_html:
+        dfs = pd.read_html(filepath_or_buffer)
+        df = dfs[0]
+        df.columns = [str(c).strip() for c in df.iloc[0]]
+        df = df.iloc[1:].reset_index(drop=True)
+    else:
+        if isinstance(filepath_or_buffer, str):
+            ext = os.path.splitext(filepath_or_buffer.lower())[1]
+            if ext == '.xlsb':
+                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+            else:
+                df = pd.read_excel(filepath_or_buffer)
+        else:
+            try:
+                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+            except Exception:
+                try:
+                    filepath_or_buffer.seek(0)
+                    df = pd.read_excel(filepath_or_buffer)
+                except Exception:
+                    filepath_or_buffer.seek(0)
+                    dfs = pd.read_html(filepath_or_buffer)
+                    df = dfs[0]
+                    df.columns = [str(c).strip() for c in df.iloc[0]]
+                    df = df.iloc[1:].reset_index(drop=True)
+        
     standard_renames = {
         'VEHICLE CODE': 'VEHICLE CODE',
         'BIW NUMBER': 'BIW NUMBER',
@@ -204,7 +417,26 @@ def load_vgl(filepath_or_buffer):
             if col_clean.lower() == std_key.lower():
                 df.rename(columns={col: std_val}, inplace=True)
                 
-    # Find engine column
+    if 'VEHICLE CODE' in df.columns:
+        df['VEHICLE CODE'] = df['VEHICLE CODE'].astype(str).str.strip()
+    if 'BIW NUMBER' in df.columns:
+        df['BIW NUMBER'] = df['BIW NUMBER'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip().replace('.0','').replace('e+','').replace('+','').isdigit() else str(x).strip())
+    
+    df['VIN_Count'] = 1
+    
+    # Map model if PRODUCT / ProductFamily is present
+    def map_model(row):
+        p = str(row.get('PRODUCT', row.get('ProductFamily', ''))).strip().upper()
+        for k, v in pf_map.items():
+            if k in p:
+                return v
+        return 'UNKNOWN'
+        
+    df['Model'] = df.apply(map_model, axis=1)
+    
+    if 'CREATED DATE' in df.columns:
+        df['CREATED DATE'] = pd.to_datetime(df['CREATED DATE'], dayfirst=True, errors='coerce')
+        
     engine_col = None
     for col in df.columns:
         c_str = str(col).strip().lower()
@@ -217,15 +449,6 @@ def load_vgl(filepath_or_buffer):
     else:
         df['RAW_ENGINE_PART'] = None
         
-    # Clean VEHICLE CODE and BIW NUMBER
-    df['VEHICLE CODE'] = df['VEHICLE CODE'].astype(str).str.strip()
-    df['BIW NUMBER'] = df['BIW NUMBER'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip().replace('.0','').replace('e+','').replace('+','').isdigit() else str(x).strip())
-    
-    # Parse date
-    if 'CREATED DATE' in df.columns:
-        df['CREATED DATE'] = pd.to_datetime(df['CREATED DATE'], dayfirst=True, errors='coerce')
-        
-    # Extract primary engine part number (split by ' / ' if present)
     def extract_engine(val):
         if pd.isna(val):
             return None
@@ -331,8 +554,11 @@ def classify_files(uploaded_files):
         if 'bom' in name:
             classifications['BOM'] = f
         elif 'float' in name:
-            classifications['FLOAT_REPORT'] = f
-        elif 'vgl' in name or 'vehicle_generation' in name or 'generation_list' in name:
+            if 'paint' in name:
+                classifications['FLOAT_PAINT_SUMMARY'] = f
+            else:
+                classifications['FLOAT_REPORT'] = f
+        elif any(k in name for k in ['vgl', 'vehicle_generation', 'generation_list', 'dpt-plan', 'dpt_plan', 'vin_generation', 'generation_report']):
             if 'tcf2' in name or 'tcf_2' in name:
                 classifications['TCF2_VGL'] = f
             else:
@@ -405,7 +631,7 @@ def detect_and_classify_files(directory_path):
                 set_cat('FLOAT_PAINT_SUMMARY', path)
             else:
                 set_cat('FLOAT_REPORT', path)
-        elif 'vgl' in name_lower or 'vehicle_generation' in name_lower or 'generation_list' in name_lower:
+        elif any(k in name_lower for k in ['vgl', 'vehicle_generation', 'generation_list', 'dpt-plan', 'dpt_plan', 'vin_generation', 'generation_report']):
             if 'tcf2' in name_lower or 'tcf_2' in name_lower:
                 set_cat('TCF2_VGL', path)
             else:
