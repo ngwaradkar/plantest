@@ -1650,9 +1650,14 @@ with tcf_tabs[0]:
         rows = []
         
         def get_today_vin_count(vgl_df, model_name):
-            if vgl_df is None or vgl_df.empty or 'Model' not in vgl_df.columns:
+            if vgl_df is None or vgl_df.empty:
                 return 0
-            sub = vgl_df[vgl_df['Model'] == model_name]
+            col = 'Model_Family' if 'Model_Family' in vgl_df.columns else ('Model' if 'Model' in vgl_df.columns else None)
+            if not col:
+                return 0
+            sub = vgl_df[vgl_df[col] == model_name]
+            if sub.empty and 'Model' in vgl_df.columns and col != 'Model':
+                sub = vgl_df[vgl_df['Model'] == model_name]
             if 'VIN_Count' in sub.columns:
                 return int(sub['VIN_Count'].sum())
             return len(sub)

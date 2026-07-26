@@ -37,14 +37,14 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
         if not part_no or str(part_no).strip() in ['0', 'None', 'nan']:
             continue
             
-        part_no = str(part_no).strip()
+        cnt = int(row.get('VIN_Count', 1)) if pd.notna(row.get('VIN_Count')) and str(row.get('VIN_Count')).isdigit() else 1
         if part_no in true_stock:
-            true_stock[part_no] -= 1
-            consumed[part_no] += 1
+            true_stock[part_no] -= cnt
+            consumed[part_no] += cnt
         else:
             # Consumed a part that wasn't in starting stock file
-            true_stock[part_no] = -1
-            consumed[part_no] = 1
+            true_stock[part_no] = -cnt
+            consumed[part_no] = cnt
             
     # Check for negative true stock
     for part, qty in true_stock.items():

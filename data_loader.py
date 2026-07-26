@@ -129,7 +129,7 @@ def load_float_report(filepath_or_buffer):
     # Parse dates
     for date_col in ['BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT', 'PBS LIFT']:
         if date_col in df.columns:
-            df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce')
+            df[date_col] = pd.to_datetime(df[date_col], format='mixed', dayfirst=True, errors='coerce')
             
     # Clean BIW NUMBER and VEHICLE CODE
     if 'BIW NUMBER' in df.columns:
@@ -379,6 +379,7 @@ def load_vgl(filepath_or_buffer):
                         'ProductFamily': current_pf,
                         'SALES DESCRIPTION': sales_desc,
                         'Model': model,
+                        'Model_Family': model,
                         'VIN_Count': vin_cnt,
                         'CREATED DATE': pd.Timestamp.now()
                     })
@@ -386,7 +387,7 @@ def load_vgl(filepath_or_buffer):
                 if not df_res.empty:
                     return df_res
 
-    # Old VGL format fallback using pd.read_html / read_excel
+    # Fallback reading via pd.read_html / pd.read_excel
     if is_html:
         dfs = pd.read_html(filepath_or_buffer)
         df = dfs[0]
@@ -413,6 +414,8 @@ def load_vgl(filepath_or_buffer):
                     df.columns = [str(c).strip() for c in df.iloc[0]]
                     df = df.iloc[1:].reset_index(drop=True)
         
+    df.columns = [str(c).strip() for c in df.columns]
+
     standard_renames = {
         'VEHICLE CODE': 'VEHICLE CODE',
         'VC': 'VEHICLE CODE',
@@ -424,43 +427,73 @@ def load_vgl(filepath_or_buffer):
         'CREATED DATE': 'CREATED DATE',
         'SHIFT': 'SHIFT'
     }
-    for col in df.columns:
+    for col in list(df.columns):
         col_clean = str(col).strip()
         for std_key, std_val in standard_renames.items():
             if col_clean.lower() == std_key.lower():
                 df.rename(columns={col: std_val}, inplace=True)
+                break
                 
     if 'VEHICLE CODE' in df.columns:
         df['VEHICLE CODE'] = df['VEHICLE CODE'].astype(str).str.strip()
         df['VC'] = df['VEHICLE CODE']
-    elif 'VC' in df.columns:
-        df['VC'] = df['VC'].astype(str).str.strip()
-        df['VEHICLE CODE'] = df['VC']
     else:
         df['VEHICLE CODE'] = ""
         df['VC'] = ""
-        
+
+    # Filter out total / summary rows
+    vc_mask = df['VEHICLE CODE'].str.upper().isin(['TOTAL', 'GRAND TOTAL', 'NAN', ''])
+    if 'MARKET' in df.columns:
+        vc_mask = vc_mask | df['MARKET'].astype(str).str.strip().str.upper().isin(['TOTAL', 'GRAND TOTAL'])
+    df = df[~vc_mask].reset_index(drop=True)
+
+    if 'ProductFamily' in df.columns:
+        df['ProductFamily'] = df['ProductFamily'].replace(r'^\s*$', None, regex=True).ffill()
+    if 'PRODUCT' in df.columns:
+        df['PRODUCT'] = df['PRODUCT'].replace(r'^\s*$', None, regex=True).ffill()
+
+    vin_col = None
+    for c in df.columns:
+        c_str = str(c).strip().upper()
+        if c_str in ['TCF/-VIN', 'TCF2-VIN', 'TCF-VIN', 'TCF1-VIN', 'TCF1_VIN', 'TCF2_VIN', 'VIN_COUNT', 'TODAY VIN', 'VIN GENERATION', 'VIN QTY', 'VIN_QTY']:
+            vin_col = c
+            break
+        if 'VIN' in c_str and 'CODE' not in c_str and 'NUMBER' not in c_str and 'DESC' not in c_str and 'PLAN' not in c_str:
+            vin_col = c
+            break
+
+    if vin_col:
+        df['VIN_Count'] = pd.to_numeric(df[vin_col], errors='coerce').fillna(0).astype(int)
+    else:
+        df['VIN_Count'] = 1
+
     if 'BIW NUMBER' in df.columns:
         df['BIW NUMBER'] = df['BIW NUMBER'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip().replace('.0','').replace('e+','').replace('+','').isdigit() else str(x).strip())
     
-    df['VIN_Count'] = 1
-    
-    # Map model if PRODUCT / ProductFamily is present or check SALES DESCRIPTION
-    def map_model(row):
-        p = str(row.get('PRODUCT', row.get('ProductFamily', ''))).strip().upper()
+    def map_model_family(row):
+        pf = str(row.get('PRODUCT', row.get('ProductFamily', ''))).strip().upper()
+        sd = str(row.get('SALES DESCRIPTION', row.get('SALES DESC', ''))).strip().upper()
+        vc = str(row.get('VEHICLE CODE', row.get('VC', ''))).strip().upper()
+        
+        if 'NOVA' in pf or 'PUNCH.EV' in sd or 'PUNCH EV' in sd:
+            return 'PUNCH.EV'
+        elif 'HORNBILL' in pf or 'PUNCH' in sd:
+            return 'PUNCH'
+        elif 'ETURNA' in pf or 'HARRIER.EV' in sd or 'HARRIER EV' in sd:
+            return 'HARRIER.EV'
+        elif 'TAYRONA' in pf or 'SAFARI.EV' in sd or 'SAFARI EV' in sd or '54831927A' in vc:
+            return 'SAFARI EV'
+        elif 'GRAVITAS' in pf or 'SAFARI' in sd:
+            return 'SAFARI'
+        elif 'Q5' in pf or 'HARRIER' in sd:
+            return 'HARRIER'
         for k, v in pf_map.items():
-            if k in p:
+            if k in pf or k in sd:
                 return v
-        s = str(row.get('SALES DESCRIPTION', '')).strip().upper()
-        if 'PUNCH.EV' in s: return 'PUNCH.EV'
-        elif 'PUNCH' in s: return 'PUNCH'
-        elif 'HARRIER.EV' in s: return 'HARRIER.EV'
-        elif 'HARRIER' in s: return 'HARRIER'
-        elif 'SAFARI.EV' in s: return 'SAFARI.EV'
-        elif 'SAFARI' in s: return 'SAFARI'
         return 'UNKNOWN'
         
-    df['Model'] = df.apply(map_model, axis=1)
+    df['Model_Family'] = df.apply(map_model_family, axis=1)
+    df['Model'] = df['Model_Family']
     
     if 'CREATED DATE' in df.columns:
         df['CREATED DATE'] = pd.to_datetime(df['CREATED DATE'], dayfirst=True, errors='coerce')
