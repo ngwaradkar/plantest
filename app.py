@@ -992,7 +992,7 @@ def render_total_float_details_view(float_df, default_line="All"):
 
     # Interactive Data Table
     st.markdown("#### 📋 Float Cab Details")
-    display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'PRODUCT', 'MODEL', 'COLOUR', 'SHOP', 'Stage', 'HOLD BY', 'REASONS S', 'BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT', 'PBS LIFT']
+    display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'PRODUCT', 'MODEL', 'COLOUR', 'SHOP', 'Stage', 'HOLD BY', 'REASONS S', 'BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT']
     available_cols = [c for c in display_cols if c in df_search.columns]
     
     st.dataframe(df_search[available_cols], use_container_width=True, hide_index=True)
@@ -1145,7 +1145,7 @@ with tcf_tabs[1]:
             if search_biw:
                 filtered_df = filtered_df[filtered_df['BIW NUMBER'].astype(str).str.contains(search_biw.strip())]
                 
-            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'PBS LIFT', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
+            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
             
             st.caption("✏️ **Planner Edit Mode** — Click any cell in the **Status** or **Blocking Reason** column to change it. Changes are saved automatically.")
             
@@ -1170,7 +1170,6 @@ with tcf_tabs[1]:
                         "BLOCKING REASON",
                         help="Enter blocking/hold reason (e.g., quality issue, part shortage, PBS hold)"
                     ),
-                    "PBS LIFT": st.column_config.TextColumn("PBS LIFT", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
                     "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
@@ -1231,6 +1230,37 @@ with tcf_tabs[1]:
                     for col in ws.columns:
                         max_len = max(len(str(cell.value or '')) for cell in col)
                         ws.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 12)
+                        
+                    # Sheet 2: ready to upload (Pivot of Short VC and count)
+                    ready_full_1 = filtered_df[filtered_df['STATUS'] == '✅ Ready for TCF'].copy()
+                    vc_s1 = ready_full_1['VEHICLE CODE'] if 'VEHICLE CODE' in ready_full_1.columns else (ready_full_1['VC'] if 'VC' in ready_full_1.columns else pd.Series('', index=ready_full_1.index))
+                    ready_full_1['Short VC'] = vc_s1.astype(str).str.strip().str[:9]
+                    pivot_df_1 = ready_full_1.groupby('Short VC').size().reset_index(name='Count')
+                    tot_row_1 = pd.DataFrame([{'Short VC': 'Total', 'Count': pivot_df_1['Count'].sum()}])
+                    pivot_full_1 = pd.concat([pivot_df_1, tot_row_1], ignore_index=True)
+                    
+                    pivot_full_1.to_excel(writer, index=False, sheet_name='ready to upload')
+                    ws2 = writer.sheets['ready to upload']
+                    for c in range(1, len(pivot_full_1.columns) + 1):
+                        cell = ws2.cell(row=1, column=c)
+                        cell.font = hdr_font
+                        cell.fill = hdr_fill
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                        cell.border = thin_b
+                    for r in range(2, len(pivot_full_1) + 2):
+                        is_tot = (r == len(pivot_full_1) + 1)
+                        for c in range(1, len(pivot_full_1.columns) + 1):
+                            cell = ws2.cell(row=r, column=c)
+                            cell.border = thin_b
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
+                            if is_tot:
+                                cell.font = Font(name='Calibri', size=11, bold=True)
+                                cell.fill = hdr_fill
+                            else:
+                                cell.font = Font(name='Calibri', size=10)
+                    for col in ws2.columns:
+                        max_len = max(len(str(cell.value or '')) for cell in col)
+                        ws2.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 15)
                 with dl_cols[0]:
                     st.download_button(
                         label=f"📥 Ready to TCF1 ({len(ready_df_tcf1)} cabs)",
@@ -1323,7 +1353,7 @@ with tcf_tabs[2]:
             if search_biw_tcf2:
                 filtered_df_tcf2 = filtered_df_tcf2[filtered_df_tcf2['BIW NUMBER'].astype(str).str.contains(search_biw_tcf2.strip())]
                 
-            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'PBS LIFT', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
+            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
             
             st.caption("✏️ **Planner Edit Mode** — Click any cell in the **Status** or **Blocking Reason** column to change it. Changes are saved automatically.")
             
@@ -1348,7 +1378,6 @@ with tcf_tabs[2]:
                         "BLOCKING REASON",
                         help="Enter blocking/hold reason (e.g., quality issue, part shortage, PBS hold)"
                     ),
-                    "PBS LIFT": st.column_config.TextColumn("PBS LIFT", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
                     "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
@@ -1409,6 +1438,37 @@ with tcf_tabs[2]:
                     for col in ws.columns:
                         max_len = max(len(str(cell.value or '')) for cell in col)
                         ws.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 12)
+                        
+                    # Sheet 2: ready to upload (Pivot of Short VC and count)
+                    ready_full_2 = filtered_df_tcf2[filtered_df_tcf2['STATUS'] == '✅ Ready for TCF'].copy()
+                    vc_s2 = ready_full_2['VEHICLE CODE'] if 'VEHICLE CODE' in ready_full_2.columns else (ready_full_2['VC'] if 'VC' in ready_full_2.columns else pd.Series('', index=ready_full_2.index))
+                    ready_full_2['Short VC'] = vc_s2.astype(str).str.strip().str[:9]
+                    pivot_df_2 = ready_full_2.groupby('Short VC').size().reset_index(name='Count')
+                    tot_row_2 = pd.DataFrame([{'Short VC': 'Total', 'Count': pivot_df_2['Count'].sum()}])
+                    pivot_full_2 = pd.concat([pivot_df_2, tot_row_2], ignore_index=True)
+                    
+                    pivot_full_2.to_excel(writer, index=False, sheet_name='ready to upload')
+                    ws2_2 = writer.sheets['ready to upload']
+                    for c in range(1, len(pivot_full_2.columns) + 1):
+                        cell = ws2_2.cell(row=1, column=c)
+                        cell.font = hdr_font
+                        cell.fill = hdr_fill
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                        cell.border = thin_b
+                    for r in range(2, len(pivot_full_2) + 2):
+                        is_tot = (r == len(pivot_full_2) + 1)
+                        for c in range(1, len(pivot_full_2.columns) + 1):
+                            cell = ws2_2.cell(row=r, column=c)
+                            cell.border = thin_b
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
+                            if is_tot:
+                                cell.font = Font(name='Calibri', size=11, bold=True)
+                                cell.fill = hdr_fill
+                            else:
+                                cell.font = Font(name='Calibri', size=10)
+                    for col in ws2_2.columns:
+                        max_len = max(len(str(cell.value or '')) for cell in col)
+                        ws2_2.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 15)
                 with dl_cols_tcf2[0]:
                     st.download_button(
                         label=f"📥 Ready to TCF2 ({len(ready_df_tcf2)} cabs)",
