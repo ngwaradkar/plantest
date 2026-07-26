@@ -692,6 +692,7 @@ try:
         # 2. Load Float Reports
         float_df = dl.load_float_report(loaded_data['FLOAT_REPORT']) if 'FLOAT_REPORT' in loaded_data else None
         paint_summary_dict = dl.load_paint_summary_report(loaded_data['FLOAT_PAINT_SUMMARY']) if 'FLOAT_PAINT_SUMMARY' in loaded_data else None
+        paint_summary_vc_dict = dl.load_paint_summary_by_vc(loaded_data['FLOAT_PAINT_SUMMARY']) if 'FLOAT_PAINT_SUMMARY' in loaded_data else None
         
         # 3. Load VGL drops
         tcf1_drops = dl.load_vgl(loaded_data['TCF1_VGL']) if 'TCF1_VGL' in loaded_data else None
@@ -1978,19 +1979,30 @@ with tcf_tabs[0]:
             'WETSANDING G TO SEALANT'
         ]
         
-        temp_float_df['Engine_Part'] = temp_float_df['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
-        for idx, row_f in temp_float_df.iterrows():
-            part = row_f['Engine_Part']
-            if pd.isna(part):
-                continue
-            p_str = str(part).strip()
-            stage = row_f['Stage']
-            
-            total_float_dict[p_str] = total_float_dict.get(p_str, 0) + 1
-            if stage == 'PBS FLOAT':
-                pbs_float_dict[p_str] = pbs_float_dict.get(p_str, 0) + 1
-            if stage in stages_upto_sealant:
-                upto_sealant_dict[p_str] = upto_sealant_dict.get(p_str, 0) + 1
+        if paint_summary_vc_dict:
+            for svc, counts in paint_summary_vc_dict.items():
+                p_str = vc_to_engine.get(svc)
+                if p_str and str(p_str).strip() not in ['None', 'nan', '0']:
+                    p_clean = str(p_str).strip()
+                    total_float_dict[p_clean] = total_float_dict.get(p_clean, 0) + counts['TOTAL FLOAT']
+                    pbs_float_dict[p_clean] = pbs_float_dict.get(p_clean, 0) + counts['PBS FLOAT']
+                    upto_sealant_dict[p_clean] = upto_sealant_dict.get(p_clean, 0) + counts['TOTAL UPTO SEALANT']
+        elif temp_float_df is not None and not temp_float_df.empty:
+            vc_col = 'VEHICLE CODE' if 'VEHICLE CODE' in temp_float_df.columns else ('VC' if 'VC' in temp_float_df.columns else None)
+            if vc_col:
+                temp_float_df['Engine_Part'] = temp_float_df[vc_col].astype(str).str.strip().str[:9].map(vc_to_engine)
+                for idx, row_f in temp_float_df.iterrows():
+                    part = row_f.get('Engine_Part')
+                    if pd.isna(part):
+                        continue
+                    p_str = str(part).strip()
+                    stage = row_f.get('Stage', '')
+                    
+                    total_float_dict[p_str] = total_float_dict.get(p_str, 0) + 1
+                    if stage == 'PBS FLOAT':
+                        pbs_float_dict[p_str] = pbs_float_dict.get(p_str, 0) + 1
+                    if stage in stages_upto_sealant:
+                        upto_sealant_dict[p_str] = upto_sealant_dict.get(p_str, 0) + 1
                 
         # Build TCF1 rows
         punch_parts = [
@@ -2290,7 +2302,7 @@ with tcf_tabs[0]:
         """)
         
         # Helper to build shortage table for Cockpit or Front Wiring
-        def build_formatted_shortage_table(part_col_name, stock_tcf1, stock_tcf2, bom_df, float_df, tcf1_drops, tcf2_drops):
+        def build_formatted_shortage_table(part_col_name, stock_tcf1, stock_tcf2, bom_df, float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops):
             if bom_df is None or bom_df.empty:
                 return pd.DataFrame()
                 
@@ -2323,28 +2335,43 @@ with tcf_tabs[0]:
             total_dict = {}
             stages_upto_sealant = ['PBS FLOAT', 'PBS TO POLISHING', 'POLISHING TO TOPCOAT', 'TOPCOAT TO WETSANDING G ROOFBLACK', 'TOPCOAT TO WETSANDING G FRESH', 'WETSANDING G TO SEALANT']
             
-            if float_df is not None and not float_df.empty:
-                for idx, row in float_df.iterrows():
-                    vc = str(row.get('VEHICLE CODE', '')).strip()[:9]
-                    p = vc_to_part.get(vc)
-                    if p and p not in ['None', 'nan', '0']:
-                        total_dict[p] = total_dict.get(p, 0) + 1
-                        stg = row.get('Stage', '')
-                        if stg == 'PBS FLOAT':
-                            pbs_dict[p] = pbs_dict.get(p, 0) + 1
-                        if stg in stages_upto_sealant:
-                            sealant_dict[p] = sealant_dict.get(p, 0) + 1
+            if paint_summary_vc_dict:
+                for svc, counts in paint_summary_vc_dict.items():
+                    p = vc_to_part.get(svc)
+                    if p and str(p).strip() not in ['None', 'nan', '0']:
+                        p_clean = str(p).strip()
+                        total_dict[p_clean] = total_dict.get(p_clean, 0) + counts['TOTAL FLOAT']
+                        pbs_dict[p_clean] = pbs_dict.get(p_clean, 0) + counts['PBS FLOAT']
+                        sealant_dict[p_clean] = sealant_dict.get(p_clean, 0) + counts['TOTAL UPTO SEALANT']
+            elif float_df is not None and not float_df.empty:
+                vc_col = 'VEHICLE CODE' if 'VEHICLE CODE' in float_df.columns else ('VC' if 'VC' in float_df.columns else None)
+                if vc_col:
+                    for idx, row in float_df.iterrows():
+                        vc = str(row.get(vc_col, '')).strip()[:9]
+                        p = vc_to_part.get(vc)
+                        if p and str(p).strip() not in ['None', 'nan', '0']:
+                            p_clean = str(p).strip()
+                            total_dict[p_clean] = total_dict.get(p_clean, 0) + 1
+                            stg = row.get('Stage', '')
+                            if stg == 'PBS FLOAT':
+                                pbs_dict[p_clean] = pbs_dict.get(p_clean, 0) + 1
+                            if stg in stages_upto_sealant:
+                                sealant_dict[p_clean] = sealant_dict.get(p_clean, 0) + 1
                             
             today_vin_dict = {}
             if tcf1_drops is not None and not tcf1_drops.empty:
-                mapped_1 = tcf1_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
-                for p, count in mapped_1.value_counts().items():
-                    if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
+                vc_col1 = 'VEHICLE CODE' if 'VEHICLE CODE' in tcf1_drops.columns else ('VC' if 'VC' in tcf1_drops.columns else None)
+                if vc_col1:
+                    mapped_1 = tcf1_drops[vc_col1].astype(str).str.strip().str[:9].map(vc_to_part)
+                    for p, count in mapped_1.value_counts().items():
+                        if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
                     
             if tcf2_drops is not None and not tcf2_drops.empty:
-                mapped_2 = tcf2_drops['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_part)
-                for p, count in mapped_2.value_counts().items():
-                    if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
+                vc_col2 = 'VEHICLE CODE' if 'VEHICLE CODE' in tcf2_drops.columns else ('VC' if 'VC' in tcf2_drops.columns else None)
+                if vc_col2:
+                    mapped_2 = tcf2_drops[vc_col2].astype(str).str.strip().str[:9].map(vc_to_part)
+                    for p, count in mapped_2.value_counts().items():
+                        if pd.notna(p): today_vin_dict[str(p)] = today_vin_dict.get(str(p), 0) + count
 
             table_rows = []
             header_part_name = 'Cockpit Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
@@ -2386,8 +2413,8 @@ with tcf_tabs[0]:
                 
             return pd.DataFrame(table_rows)
 
-        df_cpt_shortage = build_formatted_shortage_table('Cockpit', tcf1_cockpit_start, tcf2_cockpit_start, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
-        df_wir_shortage = build_formatted_shortage_table('Front Wiring', tcf1_wiring_start, tcf2_wiring_start, bom_df, temp_float_df, tcf1_drops, tcf2_drops)
+        df_cpt_shortage = build_formatted_shortage_table('Cockpit', tcf1_cockpit_start, tcf2_cockpit_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops)
+        df_wir_shortage = build_formatted_shortage_table('Front Wiring', tcf1_wiring_start, tcf2_wiring_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops)
 
         def render_html_formatted_shortage(df, part_header_name, is_dark):
             if df.empty:

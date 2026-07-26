@@ -811,3 +811,130 @@ def load_metadata(key, default=None):
         return default
     finally:
         conn.close()
+
+def load_paint_summary_by_vc(filepath_or_buffer):
+    """
+    Loads PPC Float Report Paint Summary and returns stage float counts aggregated by Short Vehicle Code (SHORT VC).
+    Returns dict: { '54734327A': {'TOTAL FLOAT': int, 'PBS FLOAT': int, 'TOTAL UPTO SEALANT': int}, ... }
+    """
+    if not filepath_or_buffer:
+        return {}
+
+    if not isinstance(filepath_or_buffer, str):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
+            
+    is_html = False
+    if isinstance(filepath_or_buffer, str):
+        ext = os.path.splitext(filepath_or_buffer.lower())[1]
+        if ext in ['.xls', '.html', '.htm']:
+            try:
+                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
+                    first_chars = f.read(500)
+                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
+                        is_html = True
+            except Exception:
+                pass
+
+    try:
+        if is_html:
+            dfs = pd.read_html(filepath_or_buffer)
+            if not dfs:
+                return {}
+            df = dfs[0]
+        else:
+            if isinstance(filepath_or_buffer, str):
+                ext = os.path.splitext(filepath_or_buffer.lower())[1]
+                if ext == '.xlsb':
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                else:
+                    df = pd.read_excel(filepath_or_buffer)
+            else:
+                try:
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                except Exception:
+                    try:
+                        filepath_or_buffer.seek(0)
+                        df = pd.read_excel(filepath_or_buffer)
+                    except Exception:
+                        try:
+                            filepath_or_buffer.seek(0)
+                            dfs = pd.read_html(filepath_or_buffer)
+                            if not dfs:
+                                return {}
+                            df = dfs[0]
+                        except Exception:
+                            return {}
+    except Exception:
+        return {}
+
+    header_row_idx = None
+    col_map = {}
+    
+    for r_idx in range(min(15, len(df))):
+        row_vals = [str(x).upper().strip() for x in df.iloc[r_idx].values]
+        if any('SHORT VC' in x or 'VEHICLE CODE' in x or x == 'VC' for x in row_vals) or any('TOTAL FLOAT' in x for x in row_vals):
+            header_row_idx = r_idx
+            for c_idx, val in enumerate(row_vals):
+                if 'SHORT VC' in val or 'VEHICLE CODE' in val or val == 'VC':
+                    col_map['VC'] = c_idx
+                elif 'TOTAL FLOAT' in val and 'TOTAL FLOAT' not in col_map:
+                    col_map['TOTAL FLOAT'] = c_idx
+                elif 'PBS FLOAT' in val:
+                    col_map['PBS FLOAT'] = c_idx
+                elif 'UPTO SEALANT' in val or 'UPTO SEALENT' in val:
+                    col_map['TOTAL UPTO SEALANT'] = c_idx
+                elif 'PBS TO POLISHING' in val:
+                    col_map['PBS TO POLISHING'] = c_idx
+                elif 'POLISHING TO TOPCOAT' in val:
+                    col_map['POLISHING TO TOPCOAT'] = c_idx
+                elif 'TOPCOAT TO WETSANDING' in val or 'TOPCOAT TO WET' in val:
+                    if 'ROOF' in val or 'BLACK' in val:
+                        col_map['TOPCOAT TO WETSANDING G ROOFBLACK'] = c_idx
+                    else:
+                        col_map['TOPCOAT TO WETSANDING G FRESH'] = c_idx
+                elif 'WETSANDING' in val and 'SEAL' in val:
+                    col_map['WETSANDING G TO SEALANT'] = c_idx
+            break
+
+    vc_counts = {}
+    if header_row_idx is not None and 'VC' in col_map:
+        vc_cidx = col_map['VC']
+        tot_cidx = col_map.get('TOTAL FLOAT')
+        pbs_cidx = col_map.get('PBS FLOAT')
+        seal_cidx = col_map.get('TOTAL UPTO SEALANT')
+        
+        start_r = header_row_idx + 1
+        for idx in range(start_r, len(df)):
+            row = df.iloc[idx]
+            if vc_cidx < len(row):
+                raw_vc = str(row.iloc[vc_cidx]).strip()
+                if raw_vc and raw_vc.lower() != 'nan' and len(raw_vc) >= 8 and not raw_vc.upper().startswith('TOTAL'):
+                    svc = raw_vc[:9]
+                    
+                    def get_int(c_idx):
+                        if c_idx is not None and c_idx < len(row):
+                            try:
+                                v_str = str(row.iloc[c_idx]).strip()
+                                return int(float(v_str)) if v_str and v_str.lower() != 'nan' else 0
+                            except Exception:
+                                return 0
+                        return 0
+                        
+                    tot = get_int(tot_cidx)
+                    pbs = get_int(pbs_cidx)
+                    
+                    if seal_cidx is not None:
+                        seal = get_int(seal_cidx)
+                    else:
+                        seal = pbs + get_int(col_map.get('PBS TO POLISHING')) + get_int(col_map.get('POLISHING TO TOPCOAT')) + get_int(col_map.get('TOPCOAT TO WETSANDING G ROOFBLACK')) + get_int(col_map.get('TOPCOAT TO WETSANDING G FRESH')) + get_int(col_map.get('WETSANDING G TO SEALANT'))
+                        
+                    if svc not in vc_counts:
+                        vc_counts[svc] = {'TOTAL FLOAT': 0, 'PBS FLOAT': 0, 'TOTAL UPTO SEALANT': 0}
+                    vc_counts[svc]['TOTAL FLOAT'] += tot
+                    vc_counts[svc]['PBS FLOAT'] += pbs
+                    vc_counts[svc]['TOTAL UPTO SEALANT'] += seal
+                    
+    return vc_counts
