@@ -122,7 +122,7 @@ def load_float_report(filepath_or_buffer):
     req = ['BIW NUMBER', 'VEHICLE CODE', 'SHOP', 'PBS LIFT', 'HOLD BY', 'REASONS S', 'VIN']
     for r in req:
         if r not in df.columns:
-            matched_col = [c for c in df.columns if r.lower() in c.lower()]
+            matched_col = [c for c in df.columns if r.lower() in c.lower() or (r == 'VEHICLE CODE' and c.lower() in ['vc', 'vehicle_code', 'vehicle code'])]
             if matched_col:
                 df.rename(columns={matched_col[0]: r}, inplace=True)
                 
@@ -132,8 +132,17 @@ def load_float_report(filepath_or_buffer):
             df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce')
             
     # Clean BIW NUMBER and VEHICLE CODE
-    df['BIW NUMBER'] = df['BIW NUMBER'].apply(lambda x: str(int(x)) if pd.notna(x) and str(x).strip().replace('.0','').isdigit() else str(x).strip())
-    df['VEHICLE CODE'] = df['VEHICLE CODE'].astype(str).str.strip()
+    if 'BIW NUMBER' in df.columns:
+        df['BIW NUMBER'] = df['BIW NUMBER'].apply(lambda x: str(int(x)) if pd.notna(x) and str(x).strip().replace('.0','').isdigit() else str(x).strip())
+    if 'VEHICLE CODE' in df.columns:
+        df['VEHICLE CODE'] = df['VEHICLE CODE'].astype(str).str.strip()
+        df['VC'] = df['VEHICLE CODE']
+    elif 'VC' in df.columns:
+        df['VC'] = df['VC'].astype(str).str.strip()
+        df['VEHICLE CODE'] = df['VC']
+    else:
+        df['VEHICLE CODE'] = ""
+        df['VC'] = ""
     
     # Group by BIW NUMBER to aggregate multiple hold reasons
     # If a cab appears multiple times, it is because of multiple hold entries.
@@ -406,6 +415,10 @@ def load_vgl(filepath_or_buffer):
         
     standard_renames = {
         'VEHICLE CODE': 'VEHICLE CODE',
+        'VC': 'VEHICLE CODE',
+        'VEHICLE_CODE': 'VEHICLE CODE',
+        'SHORT VEHICLE CODE': 'VEHICLE CODE',
+        'FULL VC': 'VEHICLE CODE',
         'BIW NUMBER': 'BIW NUMBER',
         'VIN NUMBER': 'VIN NUMBER',
         'CREATED DATE': 'CREATED DATE',
@@ -419,6 +432,14 @@ def load_vgl(filepath_or_buffer):
                 
     if 'VEHICLE CODE' in df.columns:
         df['VEHICLE CODE'] = df['VEHICLE CODE'].astype(str).str.strip()
+        df['VC'] = df['VEHICLE CODE']
+    elif 'VC' in df.columns:
+        df['VC'] = df['VC'].astype(str).str.strip()
+        df['VEHICLE CODE'] = df['VC']
+    else:
+        df['VEHICLE CODE'] = ""
+        df['VC'] = ""
+        
     if 'BIW NUMBER' in df.columns:
         df['BIW NUMBER'] = df['BIW NUMBER'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip().replace('.0','').replace('e+','').replace('+','').isdigit() else str(x).strip())
     

@@ -23,8 +23,8 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
         return true_stock, consumed, warnings
         
     for idx, row in tcf_drops.iterrows():
-        full_vc = row.get('VEHICLE CODE')
-        if pd.isna(full_vc):
+        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
+        if pd.isna(full_vc) or not full_vc:
             continue
         short_vc = str(full_vc).strip()[:9]
         
@@ -85,7 +85,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
     for idx, row in pbs_queue.iterrows():
         biw_num = row.get('BIW NUMBER')
         vin = row.get('VIN')
-        full_vc = row.get('VEHICLE CODE')
+        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
         pbs_lift = row.get('PBS LIFT')
         colour = row.get('COLOUR')
         product = row.get('PRODUCT')
@@ -353,8 +353,8 @@ def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
         else:
             shop = str(shop).strip()
             
-        full_vc = row.get('VEHICLE CODE')
-        short_vc = str(full_vc).strip()[:9]
+        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
+        short_vc = str(full_vc).strip()[:9] if pd.notna(full_vc) else ''
         
         # Look up in BOM
         bom_rows = bom[bom['Short Vehicle Code'] == short_vc] if bom is not None else pd.DataFrame()

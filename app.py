@@ -809,18 +809,26 @@ try:
             
         # Helper function to map model name dynamically with Tayrona override
         def map_row_model(df):
-            if df.empty:
+            if df is None or df.empty:
                 return pd.Series(dtype='object')
             
             # Default mapping from Engine Part
-            models = df['Engine_Part'].astype(str).str.strip().map(engine_to_model)
+            if 'Engine_Part' in df.columns:
+                models = df['Engine_Part'].astype(str).str.strip().map(engine_to_model)
+            else:
+                models = pd.Series(dtype='object', index=df.index)
             
+            vc_col = 'VEHICLE CODE' if 'VEHICLE CODE' in df.columns else ('VC' if 'VC' in df.columns else None)
+            if vc_col:
+                is_tayrona_vc = df[vc_col].astype(str).str.strip().str.startswith('54831927A')
+            else:
+                is_tayrona_vc = pd.Series(False, index=df.index)
+                
             # Override for Tayrona (Safari EV)
             if 'PRODUCT' in df.columns:
-                is_tayrona = df['PRODUCT'].astype(str).str.strip().str.upper().str.contains('TAYRONA') | \
-                             df['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+                is_tayrona = df['PRODUCT'].astype(str).str.strip().str.upper().str.contains('TAYRONA') | is_tayrona_vc
             else:
-                is_tayrona = df['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+                is_tayrona = is_tayrona_vc
                 
             models = np.where(is_tayrona, 'SAFARI EV', models)
             return pd.Series(models, index=df.index).fillna('—')
