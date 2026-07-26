@@ -18,6 +18,45 @@ def clean_part_number(val):
         return None
     return val_str
 
+def _detect_html_content(filepath_or_buffer):
+    """
+    Detects whether a file (given as an on-disk path string OR an in-memory
+    file-like buffer, e.g. a Streamlit UploadedFile returned by
+    st.file_uploader) is actually an HTML table disguised with an .xls
+    extension -- a common export format from plant reporting systems (PPC,
+    DPT Plan, etc). This works identically for both cases, so uploads made
+    through the browser file uploader are detected the same way as files
+    picked up automatically from disk.
+
+    Returns (is_html: bool, html_content: str or None). Buffers are left at
+    position 0 afterwards so downstream code can still read them.
+    """
+    name = filepath_or_buffer if isinstance(filepath_or_buffer, str) else getattr(filepath_or_buffer, 'name', '')
+    ext = os.path.splitext(str(name).lower())[1]
+
+    # Real .xlsx/.xlsb files are binary zip archives and are never HTML, so
+    # only bother sniffing content for extensions that plant systems are
+    # known to mislabel (.xls/.html/.htm), or when we don't know the name.
+    if ext not in ['.xls', '.html', '.htm', '']:
+        return False, None
+
+    try:
+        if isinstance(filepath_or_buffer, str):
+            with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        else:
+            filepath_or_buffer.seek(0)
+            raw = filepath_or_buffer.read()
+            filepath_or_buffer.seek(0)
+            content = raw.decode('utf-8', errors='ignore') if isinstance(raw, bytes) else raw
+    except Exception:
+        return False, None
+
+    first_chars = content[:500].lower()
+    if '<html' in first_chars or '<style' in first_chars or '<table' in first_chars:
+        return True, content
+    return False, None
+
 def load_bom(filepath_or_buffer):
     """
     Loads BOM details.xlsx and returns a cleaned DataFrame.
@@ -69,21 +108,12 @@ def load_float_report(filepath_or_buffer):
             filepath_or_buffer.seek(0)
         except Exception:
             pass
-    # Check if the file is an HTML table disguised as .xls
-    is_html = False
-    if isinstance(filepath_or_buffer, str):
-        ext = os.path.splitext(filepath_or_buffer.lower())[1]
-        if ext == '.xls':
-            try:
-                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
-                    first_chars = f.read(500)
-                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
-                        is_html = True
-            except Exception:
-                pass
-                
+    # Check if the file is an HTML table disguised as .xls (works for both
+    # on-disk paths and in-memory uploads from st.file_uploader)
+    is_html, html_content = _detect_html_content(filepath_or_buffer)
+
     if is_html:
-        dfs = pd.read_html(filepath_or_buffer)
+        dfs = pd.read_html(io.StringIO(html_content))
         if not dfs:
             raise ValueError("No tables found in PPC Float Report HTML file.")
         df = dfs[0]
@@ -184,20 +214,10 @@ def load_paint_summary_report(filepath_or_buffer):
         except Exception:
             pass
             
-    is_html = False
-    if isinstance(filepath_or_buffer, str):
-        ext = os.path.splitext(filepath_or_buffer.lower())[1]
-        if ext in ['.xls', '.html', '.htm']:
-            try:
-                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
-                    first_chars = f.read(500)
-                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
-                        is_html = True
-            except Exception:
-                pass
+    is_html, html_content = _detect_html_content(filepath_or_buffer)
 
     if is_html:
-        dfs = pd.read_html(filepath_or_buffer)
+        dfs = pd.read_html(io.StringIO(html_content))
         if not dfs:
             return {}
         df = dfs[0]
@@ -313,20 +333,7 @@ def load_vgl(filepath_or_buffer):
         except Exception:
             pass
 
-    is_html = False
-    html_content = None
-    if isinstance(filepath_or_buffer, str):
-        ext = os.path.splitext(filepath_or_buffer.lower())[1]
-        if ext in ['.xls', '.html', '.htm']:
-            try:
-                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
-                    first_chars = f.read(500)
-                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
-                        is_html = True
-                        f.seek(0)
-                        html_content = f.read()
-            except Exception:
-                pass
+    is_html, html_content = _detect_html_content(filepath_or_buffer)
 
     pf_map = {
         'HORNBILL': 'PUNCH',
@@ -389,7 +396,7 @@ def load_vgl(filepath_or_buffer):
 
     # Fallback reading via pd.read_html / pd.read_excel
     if is_html:
-        dfs = pd.read_html(filepath_or_buffer)
+        dfs = pd.read_html(io.StringIO(html_content))
         df = dfs[0]
         df.columns = [str(c).strip() for c in df.iloc[0]]
         df = df.iloc[1:].reset_index(drop=True)
@@ -859,21 +866,11 @@ def load_paint_summary_by_vc(filepath_or_buffer):
         except Exception:
             pass
             
-    is_html = False
-    if isinstance(filepath_or_buffer, str):
-        ext = os.path.splitext(filepath_or_buffer.lower())[1]
-        if ext in ['.xls', '.html', '.htm']:
-            try:
-                with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
-                    first_chars = f.read(500)
-                    if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
-                        is_html = True
-            except Exception:
-                pass
+    is_html, html_content = _detect_html_content(filepath_or_buffer)
 
     try:
         if is_html:
-            dfs = pd.read_html(filepath_or_buffer)
+            dfs = pd.read_html(io.StringIO(html_content))
             if not dfs:
                 return {}
             df = dfs[0]
