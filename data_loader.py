@@ -336,8 +336,8 @@ def load_vgl(filepath_or_buffer):
             header = [td.get_text(strip=True) for td in rows[0].find_all(['td', 'th'])]
             header_str = ' '.join(header).upper()
             
-            # Check if this is new DPT Plan VIN generation format
-            if 'PRODUCTFAMILY' in header_str or 'VC' in header_str or 'VIN' in header_str or 'SALES DESC' in header_str:
+            # Check if this is new DPT Plan VIN generation format (has MARKET and ProductFamily headers)
+            if ('PRODUCTFAMILY' in header_str or 'PRODUCT FAMILY' in header_str or 'MARKET' in header_str) and 'SR NO' not in header_str:
                 parsed_rows = []
                 current_pf = ''
                 for r in rows[1:]:
@@ -424,12 +424,19 @@ def load_vgl(filepath_or_buffer):
     
     df['VIN_Count'] = 1
     
-    # Map model if PRODUCT / ProductFamily is present
+    # Map model if PRODUCT / ProductFamily is present or check SALES DESCRIPTION
     def map_model(row):
         p = str(row.get('PRODUCT', row.get('ProductFamily', ''))).strip().upper()
         for k, v in pf_map.items():
             if k in p:
                 return v
+        s = str(row.get('SALES DESCRIPTION', '')).strip().upper()
+        if 'PUNCH.EV' in s: return 'PUNCH.EV'
+        elif 'PUNCH' in s: return 'PUNCH'
+        elif 'HARRIER.EV' in s: return 'HARRIER.EV'
+        elif 'HARRIER' in s: return 'HARRIER'
+        elif 'SAFARI.EV' in s: return 'SAFARI.EV'
+        elif 'SAFARI' in s: return 'SAFARI'
         return 'UNKNOWN'
         
     df['Model'] = df.apply(map_model, axis=1)
