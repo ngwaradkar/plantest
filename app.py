@@ -1974,16 +1974,11 @@ with tcf_tabs[5]:
                 icon = "🟢" if open_qty >= nova_vin_qty and open_qty > 0 else ("🟡" if open_qty > 0 else "🔴")
                 tg_report_text += f" • {icon} {m_name}: {open_qty}\n"
                 
-        edited_tg_report = st.text_area(
-            "✏️ Edit Report Message (HTML/Text) before sending:",
-            value=tg_report_text,
-            height=280,
-            key="editable_telegram_report_text"
-        )
+        st.markdown(f"<div style='background: rgba(15, 23, 42, 0.05); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all;'>{tg_report_text}</div>", unsafe_allow_html=True)
         
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
         if st.button("🚀 Send Summary Report to Telegram Now", type="primary", use_container_width=True, key="send_tg_report_main_btn"):
-            ok, res_msg = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, edited_tg_report)
+            ok, res_msg = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_text)
             if ok:
                 st.toast("🚀 Summary report successfully sent to Telegram!", icon="🚀")
                 st.success("✅ Report dispatched to Telegram successfully!")
