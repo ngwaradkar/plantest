@@ -9,6 +9,28 @@ import data_loader as dl
 importlib.reload(dl)
 import allocation_engine as ae
 importlib.reload(ae)
+import datetime
+
+# IST (India Standard Time) Timezone offset = UTC + 5:30
+IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
+IST_TZ = datetime.timezone(IST_OFFSET)
+
+def get_ist_now():
+    """Returns current datetime in Indian Standard Time (IST)."""
+    return datetime.datetime.now(datetime.timezone.utc).astimezone(IST_TZ)
+
+def format_ist_now(fmt="%d-%m-%Y %I:%M %p"):
+    """Returns formatted current IST time string."""
+    return get_ist_now().strftime(fmt)
+
+def format_ist_mtime(filepath, fmt="%d-%m-%Y %I:%M %p"):
+    """Returns formatted file modification time converted to IST."""
+    try:
+        mtime = os.path.getmtime(filepath)
+        dt = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).astimezone(IST_TZ)
+        return dt.strftime(fmt)
+    except Exception:
+        return None
 
 # Initialize session state for theme preference from database
 db_theme = '☀️ White Theme'
@@ -371,7 +393,7 @@ try:
     db_last_reset = dl.load_metadata('last_reset_time')
 except Exception:
     pass
-now = datetime.datetime.now()
+now = get_ist_now()
 reset_threshold = now.replace(hour=6, minute=30, second=0, microsecond=0)
 
 if 'last_reset_time' not in st.session_state:
@@ -510,7 +532,7 @@ with config_expander:
             if uploaded_files and uploaded_ids != last_processed_ids:
                 uploaded_mappings = dl.classify_files(uploaded_files)
                 replaced_any = False
-                upload_ts = datetime.datetime.now().strftime("%d-%m-%Y %I:%M %p")
+                upload_ts = format_ist_now("%d-%m-%Y %I:%M %p")
                 for category, uploaded_file in uploaded_mappings.items():
                     st.session_state[f"buffer_{category}"] = uploaded_file
                     st.session_state[f"upload_time_{category}"] = upload_ts
@@ -596,11 +618,7 @@ with config_expander:
                         upload_time = None
 
                 if not upload_time and is_default_exists:
-                    try:
-                        mtime = os.path.getmtime(detected_path)
-                        upload_time = datetime.datetime.fromtimestamp(mtime).strftime("%d-%m-%Y %I:%M %p")
-                    except Exception:
-                        upload_time = None
+                    upload_time = format_ist_mtime(detected_path)
 
                 time_label = f"({upload_time})" if upload_time else "(No upload time)"
 
@@ -773,7 +791,7 @@ with config_expander:
                     dl.save_nova_stocks_to_db(st.session_state.nova_materials_df)
                 except Exception:
                     pass
-                now_time = datetime.datetime.now()
+                now_time = get_ist_now()
                 st.session_state.last_reset_time = now_time
                 try:
                     dl.save_metadata('last_reset_time', now_time.isoformat())
@@ -1919,7 +1937,7 @@ with tcf_tabs[5]:
             return f"<b>{tot_blocked}</b> ({breakdown_str})"
 
         # Generate Telegram Report Text
-        now_str = datetime.datetime.now().strftime("%d-%m-%Y %I:%M %p")
+        now_str = format_ist_now("%d-%m-%Y %I:%M %p")
         
         t1_ready = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 0
         t1_blocked_str = format_blocked_summary(tcf1_alloc_df)
