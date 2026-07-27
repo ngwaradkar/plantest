@@ -1027,11 +1027,10 @@ def load_paint_summary_by_vc(filepath_or_buffer):
 # ----------------- TELEGRAM DISPATCHER UTILITY -----------------
 def send_telegram_message(bot_token, chat_id, message_text):
     """
-    Sends an HTML formatted message via Telegram Bot API.
-    Returns (success: bool, status_message: str)
+    Sends a message via Telegram Bot API with HTML formatting.
+    Converts plain text lines starting with emojis/headers to HTML bold automatically.
     """
     import urllib.request
-    import urllib.parse
     import json
 
     if not bot_token or not str(bot_token).strip():
@@ -1043,9 +1042,26 @@ def send_telegram_message(bot_token, chat_id, message_text):
     c_id = str(chat_id).strip()
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
+    formatted_lines = []
+    for line in message_text.splitlines():
+        if "<b>" in line:
+            formatted_lines.append(line)
+        elif line.startswith("📊") or line.startswith("🏭") or line.startswith("⚡"):
+            formatted_lines.append(f"<b>{line}</b>")
+        elif "• ✅" in line or "• 🚫" in line or "• 🟢" in line or "• 🟡" in line or "• 🔴" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                formatted_lines.append(f"{parts[0]}: <b>{parts[1].strip()}</b>")
+            else:
+                formatted_lines.append(line)
+        else:
+            formatted_lines.append(line)
+            
+    final_text = "\n".join(formatted_lines)
+
     payload = {
         "chat_id": c_id,
-        "text": message_text,
+        "text": final_text,
         "parse_mode": "HTML"
     }
 

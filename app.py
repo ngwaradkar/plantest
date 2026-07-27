@@ -1934,7 +1934,7 @@ with tcf_tabs[5]:
                 
             breakdown_items = [f"{cnt} {r_lbl}" for r_lbl, cnt in reason_counts.items()]
             breakdown_str = ", ".join(breakdown_items)
-            return f"<b>{tot_blocked}</b> ({breakdown_str})"
+            return f"{tot_blocked} ({breakdown_str})"
 
         # Generate Telegram Report Text
         now_str = format_ist_now("%d-%m-%Y %I:%M %p")
@@ -1954,15 +1954,15 @@ with tcf_tabs[5]:
             ]
             nova_vin_qty = len(nova_cabs)
 
-        tg_report_text = f"📊 <b>TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT</b>\n"
-        tg_report_text += f"⏰ <b>Report Time:</b> {now_str}\n\n"
-        tg_report_text += f"🏭 <b>TCF1 LINE (Altroz / Punch / Punch EV):</b>\n"
-        tg_report_text += f" • ✅ Ready for TCF: <b>{t1_ready}</b>\n"
+        tg_report_text = f"📊 TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT\n"
+        tg_report_text += f"⏰ Report Time: {now_str}\n\n"
+        tg_report_text += f"🏭 TCF1 LINE (Altroz / Punch / Punch EV):\n"
+        tg_report_text += f" • ✅ Ready for TCF: {t1_ready}\n"
         tg_report_text += f" • 🚫 Blocked: {t1_blocked_str}\n\n"
-        tg_report_text += f"🏭 <b>TCF2 LINE (Harrier / Safari):</b>\n"
-        tg_report_text += f" • ✅ Ready for TCF: <b>{t2_ready}</b>\n"
+        tg_report_text += f"🏭 TCF2 LINE (Harrier / Safari):\n"
+        tg_report_text += f" • ✅ Ready for TCF: {t2_ready}\n"
         tg_report_text += f" • 🚫 Blocked: {t2_blocked_str}\n\n"
-        tg_report_text += f"⚡ <b>Punch EV (Nova) Material Stock Status (Current VIN Qty: {nova_vin_qty}):</b>\n"
+        tg_report_text += f"⚡ Punch EV (Nova) Material Stock Status (Current VIN Qty: {nova_vin_qty}):\n"
         
         if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
             for idx, r_n in st.session_state.nova_materials_df.iterrows():
@@ -1972,7 +1972,7 @@ with tcf_tabs[5]:
                 else:
                     open_qty = int(r_n['Clearance Qty'])
                 icon = "🟢" if open_qty >= nova_vin_qty and open_qty > 0 else ("🟡" if open_qty > 0 else "🔴")
-                tg_report_text += f" • {icon} {m_name}: <b>{open_qty}</b>\n"
+                tg_report_text += f" • {icon} {m_name}: {open_qty}\n"
                 
         edited_tg_report = st.text_area(
             "✏️ Edit Report Message (HTML/Text) before sending:",
