@@ -1945,18 +1945,13 @@ with tcf_tabs[5]:
         t2_ready = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
         t2_blocked_str = format_blocked_summary(tcf2_alloc_df)
         
-        # Calculate Nova VIN Count in Total Paint Float (or TCF1 Queue fallback)
+        # Calculate Nova VIN Count in TCF1 Allocation Queue
         nova_vin_qty = 0
-        if float_df is not None and not float_df.empty:
-            nova_cabs = float_df[
-                float_df['VEHICLE CODE'].astype(str).str.strip().str.startswith('5468') |
-                float_df['PRODUCT'].astype(str).str.upper().str.contains('NOVA') |
-                float_df['PRODUCT'].astype(str).str.upper().str.contains('PUNCH EV')
+        if not tcf1_alloc_df.empty:
+            nova_cabs = tcf1_alloc_df[
+                tcf1_alloc_df['Model'].astype(str).str.contains('Nova|Punch EV', case=False, na=False) |
+                tcf1_alloc_df['VEHICLE CODE'].astype(str).str.startswith('5468')
             ]
-            if not nova_cabs.empty:
-                nova_vin_qty = len(nova_cabs)
-        elif not tcf1_alloc_df.empty:
-            nova_cabs = tcf1_alloc_df[tcf1_alloc_df['Model'].astype(str).str.contains('Nova|Punch EV') | tcf1_alloc_df['VEHICLE CODE'].astype(str).str.startswith('5468')]
             nova_vin_qty = len(nova_cabs)
 
         tg_report_text = f"📊 <b>TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT</b>\n"
