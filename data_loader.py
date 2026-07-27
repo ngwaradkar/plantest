@@ -320,11 +320,27 @@ def load_vgl(filepath_or_buffer):
         if ext in ['.xls', '.html', '.htm']:
             try:
                 with open(filepath_or_buffer, 'r', encoding='utf-8', errors='ignore') as f:
-                    first_chars = f.read(500)
+                    first_chars = f.read(1000)
                     if '<html' in first_chars.lower() or '<style' in first_chars.lower() or '<table' in first_chars.lower():
                         is_html = True
                         f.seek(0)
                         html_content = f.read()
+            except Exception:
+                pass
+    else:
+        try:
+            filepath_or_buffer.seek(0)
+            head_bytes = filepath_or_buffer.read(1000)
+            filepath_or_buffer.seek(0)
+            head_str = head_bytes.decode('utf-8', errors='ignore')
+            if '<html' in head_str.lower() or '<style' in head_str.lower() or '<table' in head_str.lower():
+                is_html = True
+                full_bytes = filepath_or_buffer.read()
+                filepath_or_buffer.seek(0)
+                html_content = full_bytes.decode('utf-8', errors='ignore')
+        except Exception:
+            try:
+                filepath_or_buffer.seek(0)
             except Exception:
                 pass
 
@@ -401,18 +417,26 @@ def load_vgl(filepath_or_buffer):
             else:
                 df = pd.read_excel(filepath_or_buffer)
         else:
-            try:
-                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-            except Exception:
+            fname = getattr(filepath_or_buffer, 'name', '').lower()
+            if fname.endswith('.xlsb'):
                 try:
-                    filepath_or_buffer.seek(0)
-                    df = pd.read_excel(filepath_or_buffer)
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
                 except Exception:
                     filepath_or_buffer.seek(0)
-                    dfs = pd.read_html(filepath_or_buffer)
-                    df = dfs[0]
-                    df.columns = [str(c).strip() for c in df.iloc[0]]
-                    df = df.iloc[1:].reset_index(drop=True)
+                    df = pd.read_excel(filepath_or_buffer)
+            else:
+                try:
+                    df = pd.read_excel(filepath_or_buffer)
+                except Exception:
+                    try:
+                        filepath_or_buffer.seek(0)
+                        df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                    except Exception:
+                        filepath_or_buffer.seek(0)
+                        dfs = pd.read_html(filepath_or_buffer)
+                        df = dfs[0]
+                        df.columns = [str(c).strip() for c in df.iloc[0]]
+                        df = df.iloc[1:].reset_index(drop=True)
         
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -812,6 +836,33 @@ def load_engine_stocks_from_db():
     finally:
         conn.close()
 
+def save_nova_stocks_to_db(df):
+    """Saves the Punch EV Nova material stock DataFrame to the DB."""
+    if df is None or df.empty:
+        return
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df.to_sql('nova_stocks', conn, if_exists='replace', index=False)
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+def load_nova_stocks_from_db():
+    """Loads Punch EV Nova material stocks from the DB."""
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql("SELECT * FROM nova_stocks", conn)
+        if not df.empty:
+            return df
+        return None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
 def init_metadata_db():
     """Initializes the metadata table if it does not exist."""
     conn = sqlite3.connect(DB_PATH)
@@ -971,3 +1022,43 @@ def load_paint_summary_by_vc(filepath_or_buffer):
                     vc_counts[svc]['TOTAL UPTO SEALANT'] += seal
                     
     return vc_counts
+
+
+# ----------------- TELEGRAM DISPATCHER UTILITY -----------------
+def send_telegram_message(bot_token, chat_id, message_text):
+    """
+    Sends an HTML formatted message via Telegram Bot API.
+    Returns (success: bool, status_message: str)
+    """
+    import urllib.request
+    import urllib.parse
+    import json
+
+    if not bot_token or not str(bot_token).strip():
+        return False, "Telegram Bot Token is missing."
+    if not chat_id or not str(chat_id).strip():
+        return False, "Telegram Chat ID is missing."
+
+    token = str(bot_token).strip()
+    c_id = str(chat_id).strip()
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    payload = {
+        "chat_id": c_id,
+        "text": message_text,
+        "parse_mode": "HTML"
+    }
+
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            if res_data.get('ok'):
+                return True, "✅ Telegram message sent successfully!"
+            else:
+                desc = res_data.get('description', 'Unknown error')
+                return False, f"❌ Telegram API Error: {desc}"
+    except Exception as e:
+        return False, f"❌ HTTP/Network Error: {e}"

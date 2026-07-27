@@ -341,6 +341,7 @@ with col_title_card:
 import datetime
 
 # Pre-populated Engine Stocks (Defaulting to 0 as requested)
+# Pre-populated Engine Stocks (ICE engines only; EV models managed separately)
 engine_default_data = [
     {"TCF Line": "TCF1", "Engine Part No": "54850000PTP001", "Model": "Punch MT SA", "TA Code": "3302", "Clearance After 6:30AM": 0},
     {"TCF Line": "TCF1", "Engine Part No": "54850000PTP002", "Model": "Punch AMT SA", "TA Code": "3404", "Clearance After 6:30AM": 0},
@@ -349,12 +350,19 @@ engine_default_data = [
     {"TCF Line": "TCF1", "Engine Part No": "54970000PTP004", "Model": "Punch MCE AMT", "TA Code": "3406", "Clearance After 6:30AM": 0},
     {"TCF Line": "TCF1", "Engine Part No": "54970000PTP005", "Model": "Punch MCE CNG MT", "TA Code": "3627", "Clearance After 6:30AM": 0},
     {"TCF Line": "TCF1", "Engine Part No": "54970000PTP031", "Model": "Punch MCE CNG AMT", "TA Code": "3403", "Clearance After 6:30AM": 0},
-    {"TCF Line": "TCF1", "Engine Part No": "546816111212", "Model": "Nova", "TA Code": "5468", "Clearance After 6:30AM": 0},
     {"TCF Line": "TCF2", "Engine Part No": "572900000118", "Model": "Harrier / Safari Diesel AT", "TA Code": "—", "Clearance After 6:30AM": 0},
     {"TCF Line": "TCF2", "Engine Part No": "572900000120", "Model": "Harrier / Safari Diesel MT", "TA Code": "—", "Clearance After 6:30AM": 0},
     {"TCF Line": "TCF2", "Engine Part No": "54780000PTP001", "Model": "Harrier / Safari Petrol TGDI MT", "TA Code": "—", "Clearance After 6:30AM": 0},
-    {"TCF Line": "TCF2", "Engine Part No": "54780000PTP002", "Model": "Harrier / Safari Petrol TGDI AT", "TA Code": "—", "Clearance After 6:30AM": 0},
-    {"TCF Line": "TCF2", "Engine Part No": "547380400103", "Model": "Harrier EV", "TA Code": "5473", "Clearance After 6:30AM": 0}
+    {"TCF Line": "TCF2", "Engine Part No": "54780000PTP002", "Model": "Harrier / Safari Petrol TGDI AT", "TA Code": "—", "Clearance After 6:30AM": 0}
+]
+
+# Pre-populated Punch EV (Nova) Material Stocks (Defaulting to 0)
+nova_default_data = [
+    {"Model": "Nova", "Material": "Battery", "Clearance Qty": 0},
+    {"Model": "Nova", "Material": "Combo", "Clearance Qty": 0},
+    {"Model": "Nova", "Material": "Tube Frame(Craddle)", "Clearance Qty": 0},
+    {"Model": "Nova", "Material": "Subframe", "Clearance Qty": 0},
+    {"Model": "Nova", "Material": "RTB", "Clearance Qty": 0}
 ]
 
 # Load last reset time from database metadata
@@ -376,7 +384,7 @@ if 'last_reset_time' not in st.session_state:
         except Exception:
             pass
 
-# Load engine stocks from DB or defaults
+# Load engine stocks from DB or defaults (filter out legacy EV entries from engine_df)
 if 'engine_df' not in st.session_state:
     db_engine_df = None
     try:
@@ -384,23 +392,55 @@ if 'engine_df' not in st.session_state:
     except Exception:
         pass
     if db_engine_df is not None:
+        db_engine_df = db_engine_df[~db_engine_df['Engine Part No'].astype(str).str.strip().isin(['546816111212', '547380400103'])]
         st.session_state.engine_df = db_engine_df
     else:
         st.session_state.engine_df = pd.DataFrame(engine_default_data)
+else:
+    st.session_state.engine_df = st.session_state.engine_df[~st.session_state.engine_df['Engine Part No'].astype(str).str.strip().isin(['546816111212', '547380400103'])]
 
-# If now has crossed 6:30 AM today, and last reset was before 6:30 AM today
-if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold:
-    st.session_state.engine_df = pd.DataFrame(engine_default_data)
+# Load Punch EV Nova materials from DB or defaults
+if 'nova_materials_df' not in st.session_state:
+    db_nova_df = None
     try:
-        dl.save_engine_stocks_to_db(st.session_state.engine_df)
+        db_nova_df = dl.load_nova_stocks_from_db()
     except Exception:
         pass
-    st.session_state.last_reset_time = now
+    if db_nova_df is not None and not db_nova_df.empty:
+        st.session_state.nova_materials_df = db_nova_df
+    else:
+        st.session_state.nova_materials_df = pd.DataFrame(nova_default_data)
+# Load Telegram bot credentials from DB metadata or pre-populated defaults
+DEFAULT_TELEGRAM_TOKEN = "8817304754:AAGT6lfz17PE2BgSAMd10h6HIrHUFfU8pGk"
+DEFAULT_TELEGRAM_CHAT_ID = "680536291"
+
+if 'telegram_token' not in st.session_state:
     try:
-        dl.save_metadata('last_reset_time', now.isoformat())
+        saved_tok = dl.load_metadata('telegram_token')
+        st.session_state.telegram_token = saved_tok if saved_tok else DEFAULT_TELEGRAM_TOKEN
     except Exception:
-        pass
-    st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
+        st.session_state.telegram_token = DEFAULT_TELEGRAM_TOKEN
+
+if 'telegram_chat_id' not in st.session_state:
+    try:
+        saved_cid = dl.load_metadata('telegram_chat_id')
+        st.session_state.telegram_chat_id = saved_cid if saved_cid else DEFAULT_TELEGRAM_CHAT_ID
+    except Exception:
+        st.session_state.telegram_chat_id = DEFAULT_TELEGRAM_CHAT_ID
+
+# Auto reset at 6:30 AM is disabled as requested by user
+# if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold:
+#     st.session_state.engine_df = pd.DataFrame(engine_default_data)
+#     try:
+#         dl.save_engine_stocks_to_db(st.session_state.engine_df)
+#     except Exception:
+#         pass
+#     st.session_state.last_reset_time = now
+#     try:
+#         dl.save_metadata('last_reset_time', now.isoformat())
+#     except Exception:
+#         pass
+#     st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
 
 # Load active directory selection from database metadata
 db_data_source = 'Root Directory (Production)'
@@ -448,206 +488,313 @@ config_expander = st.expander(
 )
 
 with config_expander:
-    col_upload, col_engine = st.columns([1, 1.2])
+    col_upload, col_engine = st.columns([1.15, 1.2])
     
     with col_upload:
-        st.markdown("#### 📤 Upload Raw Plant Files")
-        
-        # Data source selector inside Control Panel
-        dir_option = st.selectbox(
-            "📁 Active Data Source Directory",
-            options=["Root Directory (Production)", "TEST Directory (Sample Data)"],
-            index=0 if st.session_state.data_source_dir == "Root Directory (Production)" else 1,
-            key="data_source_dir_select",
-            help="Select whether the dashboard should load data from the production Root folder or the TEST sample data folder."
-        )
-        if dir_option != st.session_state.data_source_dir:
-            st.session_state.data_source_dir = dir_option
-            try:
-                dl.save_metadata('data_source_dir', dir_option)
-            except Exception:
-                pass
-            st.rerun()
+        with st.container(border=True):
+            st.markdown("#### 📤 Upload Raw Plant Files")
             
-        uploaded_files = st.file_uploader(
-            "Upload plant reports to replace existing ones",
-            accept_multiple_files=True,
-            help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
-        )
-        
-        # Process uploads immediately, saving to session state buffers and optionally to disk
-        uploaded_ids = [f"{f.name}_{f.size}" for f in uploaded_files] if uploaded_files else []
-        last_processed_ids = st.session_state.get("last_processed_upload_ids", [])
-        
-        if not uploaded_files:
-            st.session_state.last_processed_upload_ids = []
+            uploaded_files = st.file_uploader(
+                "Upload plant reports to replace existing ones",
+                accept_multiple_files=True,
+                help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
+            )
             
-        if uploaded_files and uploaded_ids != last_processed_ids:
-            uploaded_mappings = dl.classify_files(uploaded_files)
-            replaced_any = False
-            for category, uploaded_file in uploaded_mappings.items():
-                st.session_state[f"buffer_{category}"] = uploaded_file
+            # Process uploads immediately, saving to session state buffers and optionally to disk
+            uploaded_ids = [f"{f.name}_{f.size}" for f in uploaded_files] if uploaded_files else []
+            last_processed_ids = st.session_state.get("last_processed_upload_ids", [])
+            
+            if not uploaded_files:
+                st.session_state.last_processed_upload_ids = []
                 
-                if category == 'BOM':
+            if uploaded_files and uploaded_ids != last_processed_ids:
+                uploaded_mappings = dl.classify_files(uploaded_files)
+                replaced_any = False
+                upload_ts = datetime.datetime.now().strftime("%d-%m-%Y %I:%M %p")
+                for category, uploaded_file in uploaded_mappings.items():
+                    st.session_state[f"buffer_{category}"] = uploaded_file
+                    st.session_state[f"upload_time_{category}"] = upload_ts
                     try:
-                        parsed_bom = dl.load_bom(uploaded_file)
-                        try:
-                            dl.save_bom_to_db(parsed_bom)
-                            dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
-                        except Exception:
-                            pass
-                        st.toast("💾 Master BOM replaced!", icon="💾")
-                        replaced_any = True
-                    except Exception as e:
-                        st.error(f"Failed to parse uploaded BOM: {e}")
-                else:
-                    # Try to save file to disk (succeeds locally, fails safely in read-only cloud)
-                    try:
-                        old_path = detected_files.get(category)
-                        if old_path and os.path.exists(old_path):
-                            os.remove(old_path)
-                        
-                        new_path = os.path.join(active_dir, uploaded_file.name)
-                        with open(new_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
+                        dl.save_metadata(f"upload_time_{category}", upload_ts)
                     except Exception:
                         pass
                     
-                    st.toast(f"✅ Loaded {category.replace('_',' ')}: {uploaded_file.name}", icon="✅")
-                    replaced_any = True
+                    if category == 'BOM':
+                        try:
+                            parsed_bom = dl.load_bom(uploaded_file)
+                            try:
+                                dl.save_bom_to_db(parsed_bom)
+                                dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
+                            except Exception:
+                                pass
+                            st.toast("💾 Master BOM replaced!", icon="💾")
+                            replaced_any = True
+                        except Exception as e:
+                            st.error(f"Failed to parse uploaded BOM: {e}")
+                    else:
+                        # Try to save file to disk (succeeds locally, fails safely in read-only cloud)
+                        try:
+                            old_path = detected_files.get(category)
+                            if old_path and os.path.exists(old_path):
+                                os.remove(old_path)
+                            
+                            new_path = os.path.join(active_dir, uploaded_file.name)
+                            with open(new_path, "wb") as f:
+                                f.write(uploaded_file.getbuffer())
+                            dl.save_metadata(f"uploaded_{category}", uploaded_file.name)
+                        except Exception:
+                            pass
+                        
+                        st.toast(f"✅ Loaded {category.replace('_',' ')}: {uploaded_file.name}", icon="✅")
+                        replaced_any = True
+                
+                # Record that we processed these files
+                st.session_state.last_processed_upload_ids = uploaded_ids
+                if replaced_any:
+                    detected_files = dl.detect_and_classify_files(active_dir)
+                    st.session_state.run_report = False
+                    st.rerun()
             
-            # Record that we processed these files
-            st.session_state.last_processed_upload_ids = uploaded_ids
-            if replaced_any:
-                detected_files = dl.detect_and_classify_files(active_dir)
-                st.session_state.run_report = False
-                st.rerun()
-        
-        st.markdown("##### Loaded Files Status")
-        
-        # Check if database has BOM
-        db_bom_df = None
-        try:
-            db_bom_df = dl.load_bom_from_db()
-        except Exception:
-            pass
-        
-        status_items = []
-        seq_num = 1
-        
-        # Populate loaded_data
-        for category in all_categories:
-            detected_path = detected_files.get(category)
-            is_default_exists = detected_path is not None and os.path.exists(detected_path)
+            st.markdown("##### Loaded Files Status")
             
-            # Check session state buffer first
-            in_mem_buffer = st.session_state.get(f"buffer_{category}")
+            # Check if database has BOM
+            db_bom_df = None
+            try:
+                db_bom_df = dl.load_bom_from_db()
+            except Exception:
+                pass
             
-            if category == 'BOM':
+            status_items = []
+            seq_num = 1
+            
+            # Populate loaded_data
+            for category in all_categories:
+                detected_path = detected_files.get(category)
+                is_default_exists = detected_path is not None and os.path.exists(detected_path)
+                
+                # Check session state buffer first
+                in_mem_buffer = st.session_state.get(f"buffer_{category}")
+                
+                if category == 'BOM':
+                    if in_mem_buffer is not None:
+                        loaded_data[category] = in_mem_buffer
+                    elif db_bom_df is not None:
+                        loaded_data[category] = 'DATABASE'
+                    elif is_default_exists:
+                        loaded_data[category] = detected_path
+                    continue
+                    
+                display_name = category.replace('_',' ').replace('VGL', 'VIN Generation')
+                if category in ['TCF1_VGL', 'TCF2_VGL']:
+                    display_name = f"DPT {display_name}"
+
+                upload_time = st.session_state.get(f"upload_time_{category}")
+                if not upload_time:
+                    try:
+                        upload_time = dl.load_metadata(f"upload_time_{category}")
+                    except Exception:
+                        upload_time = None
+
+                if not upload_time and is_default_exists:
+                    try:
+                        mtime = os.path.getmtime(detected_path)
+                        upload_time = datetime.datetime.fromtimestamp(mtime).strftime("%d-%m-%Y %I:%M %p")
+                    except Exception:
+                        upload_time = None
+
+                time_label = f"({upload_time})" if upload_time else "(No upload time)"
+
                 if in_mem_buffer is not None:
                     loaded_data[category] = in_mem_buffer
-                elif db_bom_df is not None:
-                    loaded_data[category] = 'DATABASE'
+                    status_icon = "🟢 Uploaded"
+                    source_label = time_label
                 elif is_default_exists:
                     loaded_data[category] = detected_path
-                continue
-                
-            display_name = category.replace('_',' ').replace('VGL', 'VIN Generation')
-            uploaded_filename = None
-            try:
-                uploaded_filename = dl.load_metadata(f"uploaded_{category}")
-            except Exception:
-                pass
-                
-            if in_mem_buffer is not None:
-                loaded_data[category] = in_mem_buffer
-                status_icon = "🟢 Uploaded"
-                source_label = f"({in_mem_buffer.name})"
-            elif is_default_exists:
-                loaded_data[category] = detected_path
-                if st.session_state.data_source_dir == 'TEST Directory (Sample Data)':
-                    status_icon = "🟢 TEST Data loaded"
-                    source_label = f"({os.path.basename(detected_path)})"
-                elif uploaded_filename and os.path.basename(detected_path) == uploaded_filename:
                     status_icon = "🟢 Uploaded"
-                    source_label = f"({uploaded_filename})"
+                    source_label = time_label
                 else:
-                    status_icon = "⚪ Pending for upload"
-                    source_label = "(No data uploaded)"
-            else:
-                status_icon = "🔴 Missing"
-                source_label = "(Pending for upload)"
-                
-            status_items.append((seq_num, display_name, status_icon, source_label))
-            seq_num += 1
+                    status_icon = "🔴 Missing"
+                    source_label = "(Pending for upload)"
+                    
+                status_items.append((seq_num, display_name, status_icon, source_label))
+                seq_num += 1
 
-        is_dark_theme = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
-        sub_text_color = "#94A3B8" if is_dark_theme else "#64748B"
-        label_color = "#FAFAFA" if is_dark_theme else "#1E293B"
+            is_dark_theme = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
+            sub_text_color = "#94A3B8" if is_dark_theme else "#64748B"
+            label_color = "#FAFAFA" if is_dark_theme else "#1E293B"
 
-        status_html = "<div style='font-family: \"Inter\", sans-serif; font-size: 13px; line-height: 1.8; margin-top: 8px;'>"
-        for num, name, icon, src in status_items:
-            status_html += f'<div style="display: flex; align-items: center; margin-bottom: 4px;"><span style="font-weight: 700; width: 255px; color: {label_color}; display: inline-block; flex-shrink: 0;">{num}. {name}:</span><span style="margin-right: 12px; flex-shrink: 0;">{icon}</span><span style="color: {sub_text_color}; font-size: 12px; word-break: break-all;">{src}</span></div>'
-        status_html += "</div>"
-        st.markdown(status_html, unsafe_allow_html=True)
+            status_html = "<div style='font-family: \"Inter\", sans-serif; font-size: 13px; line-height: 1.8; margin-top: 8px;'>"
+            for num, name, icon, src in status_items:
+                status_html += f'<div style="display: flex; align-items: center; margin-bottom: 4px;"><span style="font-weight: 700; width: 255px; color: {label_color}; display: inline-block; flex-shrink: 0;">{num}. {name}:</span><span style="margin-right: 12px; flex-shrink: 0;">{icon}</span><span style="color: {sub_text_color}; font-size: 12px; word-break: break-all;">{src}</span></div>'
+            status_html += "</div>"
+            st.markdown(status_html, unsafe_allow_html=True)
+
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("#### ⚡ Punch EV (Nova) Component Starting Stocks")
+            st.markdown("<small style='color:#8896AB'>Enter clearance counts for 5 critical Punch EV materials (Defaults: 0)</small>", unsafe_allow_html=True)
             
-    with col_engine:
-        st.markdown("#### ⚙️ Engine Starting Stocks")
-        st.markdown("<small style='color:#8896AB'>Edit clearance counts directly in the table below (Default: 0)</small>", unsafe_allow_html=True)
-        
-        edited_engine_df = st.data_editor(
-            st.session_state.engine_df,
-            column_config={
-                "Clearance After 6:30AM": st.column_config.NumberColumn(
-                    "Clearance Qty",
-                    help="Engine stock count at 6:30AM shift start",
-                    min_value=0,
-                    step=1
-                ),
-                "Engine Part No": st.column_config.TextColumn(disabled=True),
-                "Model": st.column_config.TextColumn(disabled=True),
-                "TA Code": st.column_config.TextColumn(disabled=True),
-                "TCF Line": st.column_config.TextColumn(disabled=True),
-            },
-            disabled=["Engine Part No", "Model", "TA Code", "TCF Line"],
-            use_container_width=True,
-            hide_index=True
-        )
-        if not edited_engine_df.equals(st.session_state.engine_df):
-            st.session_state.engine_df = edited_engine_df
-            st.session_state.run_report = False
-            try:
-                dl.save_engine_stocks_to_db(edited_engine_df)
-            except Exception:
-                pass
-            
-        st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
-        if st.button("Reset Clearances to 0 (Shift Start)", type="secondary", use_container_width=True):
-            st.session_state.engine_df = pd.DataFrame(engine_default_data)
-            try:
-                dl.save_engine_stocks_to_db(st.session_state.engine_df)
-            except Exception:
-                pass
-            now_time = datetime.datetime.now()
-            st.session_state.last_reset_time = now_time
-            try:
-                dl.save_metadata('last_reset_time', now_time.isoformat())
-            except Exception:
-                pass
-            # Clear uploaded file registry in metadata and session state buffers (except BOM which is constant)
-            for cat in all_categories:
-                if cat == 'BOM':
-                    continue  # Master BOM details remain constant all the time
+            nova_vals = {}
+            if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
+                for idx, r_nova in st.session_state.nova_materials_df.iterrows():
+                    nova_vals[str(r_nova['Material']).strip()] = int(r_nova['Clearance Qty'])
+
+            materials_list = ["Battery", "Combo", "Tube Frame(Craddle)", "Subframe", "RTB"]
+
+            nova_cols = st.columns(5)
+            new_nova_input_vals = {}
+            for idx, mat in enumerate(materials_list):
+                current_val = nova_vals.get(mat, 0)
+                with nova_cols[idx]:
+                    st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{mat}</div>", unsafe_allow_html=True)
+                    new_nova_input_vals[mat] = st.number_input(
+                        label=mat,
+                        min_value=0,
+                        value=int(current_val),
+                        step=1,
+                        key=f"nova_input_{idx}",
+                        label_visibility="collapsed"
+                    )
+
+            st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+            if st.button("💾 Save Punch EV Clearances", type="primary", use_container_width=True, key="save_nova_btn"):
+                updated_nova_list = []
+                for mat in materials_list:
+                    updated_nova_list.append({"Model": "Nova", "Material": mat, "Clearance Qty": new_nova_input_vals[mat]})
+                st.session_state.nova_materials_df = pd.DataFrame(updated_nova_list)
+                st.session_state.run_report = False
                 try:
-                    dl.save_metadata(f"uploaded_{cat}", "")
+                    dl.save_nova_stocks_to_db(st.session_state.nova_materials_df)
                 except Exception:
                     pass
-                if f"buffer_{cat}" in st.session_state:
-                    del st.session_state[f"buffer_{cat}"]
-            st.session_state.run_report = False
-            st.toast("🔄 Engine clearances and daily report upload registries reset (Master BOM preserved)!", icon="🔄")
-            st.rerun()
+                st.toast("💾 Punch EV starting clearance stocks saved successfully!", icon="💾")
+            
+    with col_engine:
+        with st.container(border=True):
+            st.markdown("#### ⚙️ ICE Engine Starting Stocks")
+            st.markdown("<small style='color:#8896AB'>Enter clearance counts for ICE engines (Defaults: 0)</small>", unsafe_allow_html=True)
+            
+            eng_vals = {}
+            if 'engine_df' in st.session_state and st.session_state.engine_df is not None:
+                for idx, r_eng in st.session_state.engine_df.iterrows():
+                    p_no = str(r_eng['Engine Part No']).strip()
+                    eng_vals[p_no] = int(r_eng.get('Clearance After 6:30AM', 0))
+
+            tcf1_engine_list = [
+                ("54850000PTP001", "Punch MT SA"),
+                ("54850000PTP002", "Punch AMT SA"),
+                ("54970000PTP002", "Punch TC MCE"),
+                ("54970000PTP003", "Punch MCE MT"),
+                ("54970000PTP004", "Punch MCE AMT"),
+                ("54970000PTP005", "Punch MCE CNG MT"),
+                ("54970000PTP031", "Punch MCE CNG AMT")
+            ]
+
+            tcf2_engine_list = [
+                ("572900000118", "Harrier / Safari Diesel AT"),
+                ("572900000120", "Harrier / Safari Diesel MT"),
+                ("54780000PTP001", "Harrier / Safari TGDI MT"),
+                ("54780000PTP002", "Harrier / Safari TGDI AT")
+            ]
+
+            new_eng_input_vals = {}
+
+            st.markdown("<div style='font-weight: 700; font-size: 13px; color: #3B82F6; margin-top: 6px; margin-bottom: 6px;'>TCF1 Engines (Punch ICE)</div>", unsafe_allow_html=True)
+            tcf1_cols = st.columns(4)
+            for idx, (p_no, model_name) in enumerate(tcf1_engine_list):
+                c_idx = idx % 4
+                curr_val = eng_vals.get(p_no, 0)
+                with tcf1_cols[c_idx]:
+                    st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{model_name}</div>", unsafe_allow_html=True)
+                    new_eng_input_vals[p_no] = st.number_input(
+                        label=model_name,
+                        min_value=0,
+                        value=int(curr_val),
+                        step=1,
+                        key=f"eng_input_{p_no}",
+                        label_visibility="collapsed"
+                    )
+
+            st.markdown("<div style='font-weight: 700; font-size: 13px; color: #3B82F6; margin-top: 10px; margin-bottom: 6px;'>TCF2 Engines (Harrier / Safari ICE)</div>", unsafe_allow_html=True)
+            tcf2_cols = st.columns(4)
+            for idx, (p_no, model_name) in enumerate(tcf2_engine_list):
+                curr_val = eng_vals.get(p_no, 0)
+                with tcf2_cols[idx]:
+                    st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{model_name}</div>", unsafe_allow_html=True)
+                    new_eng_input_vals[p_no] = st.number_input(
+                        label=model_name,
+                        min_value=0,
+                        value=int(curr_val),
+                        step=1,
+                        key=f"eng_input_{p_no}",
+                        label_visibility="collapsed"
+                    )
+
+            st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+            if st.button("💾 Save Engine Starting Stocks", type="primary", use_container_width=True, key="save_engine_btn"):
+                for idx, r_eng in st.session_state.engine_df.iterrows():
+                    p_no = str(r_eng['Engine Part No']).strip()
+                    if p_no in new_eng_input_vals:
+                        st.session_state.engine_df.at[idx, 'Clearance After 6:30AM'] = new_eng_input_vals[p_no]
+                st.session_state.run_report = False
+                try:
+                    dl.save_engine_stocks_to_db(st.session_state.engine_df)
+                except Exception:
+                    pass
+                st.toast("💾 ICE Engine starting clearance stocks saved successfully!", icon="💾")
+
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            reset_card_bg = "rgba(225, 29, 72, 0.05)" if is_dark_theme else "#FFF1F2"
+            reset_border = "rgba(225, 29, 72, 0.25)" if is_dark_theme else "#FECDD3"
+            reset_text_color = "#FDA4AF" if is_dark_theme else "#9F1239"
+            reset_subtext = "#94A3B8" if is_dark_theme else "#64748B"
+
+            st.markdown(f"""
+            <div style="background-color: {reset_card_bg}; border: 1px solid {reset_border}; border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 15px;">🔄</span>
+                        <span style="font-weight: 700; font-size: 13px; color: {reset_text_color}; font-family: 'Inter', sans-serif;">Shift Start Stock Reset</span>
+                    </div>
+                    <span style="font-size: 11px; background: rgba(225, 29, 72, 0.12); color: {reset_text_color}; padding: 2px 8px; border-radius: 12px; font-weight: 600;">Manual Trigger</span>
+                </div>
+                <div style="font-size: 11px; color: {reset_subtext}; margin-bottom: 8px; line-height: 1.4;">
+                    Resets all starting clearance quantities to 0 and clears daily uploaded report cache.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("🔄 Reset Clearances to 0 (Shift Start)", type="primary", use_container_width=True, key="reset_clearances_btn"):
+                st.session_state.engine_df = pd.DataFrame(engine_default_data)
+                st.session_state.nova_materials_df = pd.DataFrame(nova_default_data)
+                try:
+                    dl.save_engine_stocks_to_db(st.session_state.engine_df)
+                    dl.save_nova_stocks_to_db(st.session_state.nova_materials_df)
+                except Exception:
+                    pass
+                now_time = datetime.datetime.now()
+                st.session_state.last_reset_time = now_time
+                try:
+                    dl.save_metadata('last_reset_time', now_time.isoformat())
+                except Exception:
+                    pass
+                # Clear uploaded file registry in metadata and session state buffers (except BOM which is constant)
+                for cat in all_categories:
+                    if cat == 'BOM':
+                        continue  # Master BOM details remain constant all the time
+                    try:
+                        dl.save_metadata(f"uploaded_{cat}", "")
+                        dl.save_metadata(f"upload_time_{cat}", "")
+                    except Exception:
+                        pass
+                    if f"buffer_{cat}" in st.session_state:
+                        del st.session_state[f"buffer_{cat}"]
+                    if f"upload_time_{cat}" in st.session_state:
+                        del st.session_state[f"upload_time_{cat}"]
+                st.session_state.run_report = False
+                st.toast("🔄 Engine clearances and daily report upload registries reset (Master BOM preserved)!", icon="🔄")
+                st.rerun()
 
 core_available = 'BOM' in loaded_data and ('FLOAT_REPORT' in loaded_data or 'FLOAT_PAINT_SUMMARY' in loaded_data)
 
@@ -765,6 +912,15 @@ try:
             else:
                 engine_stocks_tcf2[part] = qty
 
+        # Add Punch EV Nova starting clearance (min across 5 materials)
+        if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None and not st.session_state.nova_materials_df.empty:
+            engine_stocks_tcf1['546816111212'] = int(st.session_state.nova_materials_df['Clearance Qty'].min())
+        else:
+            engine_stocks_tcf1['546816111212'] = 182
+
+        # Add Harrier EV starting clearance (default 160)
+        engine_stocks_tcf2['547380400103'] = 160
+
         # ----------------- BACKFLUSH LOGIC (calculate true stock) -----------------
         # TCF1 Backflush
         true_engine_tcf1, eng_cons_tcf1, eng_warn_tcf1 = ae.calculate_true_stock(engine_stocks_tcf1, tcf1_drops, bom_df, 'Engine')
@@ -792,8 +948,17 @@ try:
         tcf1_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
         tcf2_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
         
+        # Build Punch EV (Nova) true material stock dict (Starting Clearance minus TCF1 Backflushed Drops)
+        true_nova_dict = {}
+        nova_backflushed = eng_cons_tcf1.get('546816111212', 0)
+        if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None and not st.session_state.nova_materials_df.empty:
+            for idx, r_nova in st.session_state.nova_materials_df.iterrows():
+                mat_name = str(r_nova['Material']).strip()
+                start_qty = int(r_nova['Clearance Qty'])
+                true_nova_dict[mat_name] = start_qty - nova_backflushed
+
         # Run allocation engine
-        tcf1_alloc, tcf1_final_stocks = ae.run_allocation(tcf1_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1)
+        tcf1_alloc, tcf1_final_stocks = ae.run_allocation(tcf1_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1, true_nova=true_nova_dict)
         tcf2_alloc, tcf2_final_stocks = ae.run_allocation(tcf2_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2)
         
         # Convert allocation lists back to DataFrames
@@ -808,21 +973,35 @@ try:
             engine_to_model = {item['Engine Part No']: item['Model'] for item in engine_default_data}
             engine_to_line = {item['Engine Part No']: item['TCF Line'] for item in engine_default_data}
             
-        # Helper function to map model name dynamically with Tayrona override
+        # Add explicit EV Model mappings
+        engine_to_model['546816111212'] = 'Punch EV (Nova)'
+        engine_to_line['546816111212'] = 'TCF1'
+        engine_to_model['547380400103'] = 'Harrier EV'
+        engine_to_line['547380400103'] = 'TCF2'
+
+        # Helper function to map model name dynamically with EV & Tayrona overrides
         def map_row_model(df):
             if df is None or df.empty:
                 return pd.Series(dtype='object')
             
             # Default mapping from Engine Part
             if 'Engine_Part' in df.columns:
-                models = df['Engine_Part'].astype(str).str.strip().map(engine_to_model)
+                models_s = df['Engine_Part'].astype(str).str.strip().map(engine_to_model)
             else:
-                models = pd.Series(dtype='object', index=df.index)
+                models_s = pd.Series(dtype='object', index=df.index)
+            
+            models_s = pd.Series(models_s, index=df.index)
+            is_missing = models_s.isna() | (models_s == '—') | (models_s == '')
             
             vc_col = 'VEHICLE CODE' if 'VEHICLE CODE' in df.columns else ('VC' if 'VC' in df.columns else None)
             if vc_col:
-                is_tayrona_vc = df[vc_col].astype(str).str.strip().str.startswith('54831927A')
+                vcs = df[vc_col].astype(str).str.strip()
+                is_nova_vc = vcs.str.startswith('5468')
+                is_harrier_ev_vc = vcs.str.startswith('5473')
+                is_tayrona_vc = vcs.str.startswith('54831927A')
             else:
+                is_nova_vc = pd.Series(False, index=df.index)
+                is_harrier_ev_vc = pd.Series(False, index=df.index)
                 is_tayrona_vc = pd.Series(False, index=df.index)
                 
             # Override for Tayrona (Safari EV)
@@ -831,8 +1010,10 @@ try:
             else:
                 is_tayrona = is_tayrona_vc
                 
-            models = np.where(is_tayrona, 'SAFARI EV', models)
-            return pd.Series(models, index=df.index).fillna('—')
+            res = np.where(is_tayrona, 'SAFARI EV',
+                  np.where(is_nova_vc & is_missing, 'Punch EV (Nova)',
+                  np.where(is_harrier_ev_vc & is_missing, 'Harrier EV', models_s)))
+            return pd.Series(res, index=df.index).fillna('—')
             
         if not tcf1_alloc_df.empty:
             tcf1_alloc_df['Model'] = map_row_model(tcf1_alloc_df)
@@ -1017,7 +1198,8 @@ tcf_tabs = st.tabs([
     "🏭 TCF 1 Line (Altroz/Punch/Nova)", 
     "🏭 TCF 2 Line (Harrier/Safari)", 
     "🔍 Total Float Details & Search",
-    "📋 Quality Hold Registry"
+    "📋 Quality Hold Registry",
+    "📱 Telegram Dispatcher"
 ])
 
 # Helper function to style allocation dataframe rows
@@ -1664,6 +1846,133 @@ with tcf_tabs[4]:
         
 
 
+# ----------------- TAB 6: TELEGRAM DISPATCHER -----------------
+with tcf_tabs[5]:
+    st.markdown("### 📱 Telegram Report Dispatcher")
+    st.markdown("Send live shift production summaries and material shortage alerts directly to Telegram channels, groups, or planners.")
+
+    # Collapsed credentials expander (hidden by default)
+    with st.expander("⚙️ Telegram Bot Settings (Click to Edit Token / Chat ID)", expanded=False):
+        st.markdown("<small style='color:#8896AB'>Configure Telegram Bot API Key & Target Chat ID</small>", unsafe_allow_html=True)
+        
+        input_token = st.text_input("Telegram Bot API Token:", value=st.session_state.telegram_token, type="password", key="input_telegram_token")
+        input_chat_id = st.text_input("Telegram Chat ID / Group ID:", value=st.session_state.telegram_chat_id, key="input_telegram_chat_id")
+        
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        btn_t1, btn_t2 = st.columns(2)
+        with btn_t1:
+            if st.button("💾 Save Credentials", type="primary", use_container_width=True, key="save_tg_creds_btn"):
+                st.session_state.telegram_token = input_token.strip()
+                st.session_state.telegram_chat_id = input_chat_id.strip()
+                try:
+                    dl.save_metadata('telegram_token', input_token.strip())
+                    dl.save_metadata('telegram_chat_id', input_chat_id.strip())
+                except Exception:
+                    pass
+                st.toast("💾 Telegram credentials saved to database!", icon="💾")
+
+        with btn_t2:
+            if st.button("🧪 Send Test Msg", type="secondary", use_container_width=True, key="test_tg_creds_btn"):
+                test_msg = "<b>🤖 TML Planner Dashboard Connected!</b>\n\nTelegram Bot integration successfully verified."
+                success, status_lbl = dl.send_telegram_message(input_token.strip(), input_chat_id.strip(), test_msg)
+                if success:
+                    st.success(status_lbl)
+                else:
+                    st.error(status_lbl)
+
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("#### 📊 Report Message Preview & Dispatch")
+        st.markdown("<small style='color:#8896AB'>Preview the live report message layout before sending to Telegram</small>", unsafe_allow_html=True)
+
+        # Helper function for detailed blocked reasons summary
+        def format_blocked_summary(alloc_df):
+            if alloc_df is None or alloc_df.empty:
+                return "<b>0</b>"
+            
+            blocked_df = alloc_df[alloc_df['STATUS'].astype(str).str.contains('Blocked|Hold')].copy()
+            tot_blocked = len(blocked_df)
+            if tot_blocked == 0:
+                return "<b>0</b>"
+                
+            reason_counts = {}
+            for idx, r in blocked_df.iterrows():
+                reason = str(r.get('BLOCKING_REASON', 'Unspecified')).strip()
+                if 'Shortage:' in reason:
+                    clean_part = reason.replace('Shortage:', '').split('(')[0].strip()
+                    tokens = clean_part.split()
+                    if len(tokens) >= 2 and tokens[-1].isdigit():
+                        clean_r = " ".join(tokens[:-1])
+                    else:
+                        clean_r = clean_part
+                elif 'Quality' in reason or 'Hold' in reason or 'QA' in reason:
+                    clean_r = "QA Hold"
+                elif 'BOM' in reason:
+                    clean_r = "BOM Incomplete"
+                else:
+                    clean_r = reason[:20]
+                    
+                reason_counts[clean_r] = reason_counts.get(clean_r, 0) + 1
+                
+            breakdown_items = [f"{cnt} {r_lbl}" for r_lbl, cnt in reason_counts.items()]
+            breakdown_str = ", ".join(breakdown_items)
+            return f"<b>{tot_blocked}</b> ({breakdown_str})"
+
+        # Generate Telegram Report Text
+        now_str = datetime.datetime.now().strftime("%d-%m-%Y %I:%M %p")
+        
+        t1_ready = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 0
+        t1_blocked_str = format_blocked_summary(tcf1_alloc_df)
+        
+        t2_ready = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
+        t2_blocked_str = format_blocked_summary(tcf2_alloc_df)
+        
+        # Calculate Nova VIN Count in Total Paint Float (or TCF1 Queue fallback)
+        nova_vin_qty = 0
+        if float_df is not None and not float_df.empty:
+            nova_cabs = float_df[
+                float_df['VEHICLE CODE'].astype(str).str.strip().str.startswith('5468') |
+                float_df['PRODUCT'].astype(str).str.upper().str.contains('NOVA') |
+                float_df['PRODUCT'].astype(str).str.upper().str.contains('PUNCH EV')
+            ]
+            if not nova_cabs.empty:
+                nova_vin_qty = len(nova_cabs)
+        elif not tcf1_alloc_df.empty:
+            nova_cabs = tcf1_alloc_df[tcf1_alloc_df['Model'].astype(str).str.contains('Nova|Punch EV') | tcf1_alloc_df['VEHICLE CODE'].astype(str).str.startswith('5468')]
+            nova_vin_qty = len(nova_cabs)
+
+        tg_report_text = f"📊 <b>TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT</b>\n"
+        tg_report_text += f"⏰ <b>Report Time:</b> {now_str}\n\n"
+        tg_report_text += f"🏭 <b>TCF1 LINE (Altroz / Punch / Punch EV):</b>\n"
+        tg_report_text += f" • ✅ Ready for TCF: <b>{t1_ready}</b>\n"
+        tg_report_text += f" • 🚫 Blocked: {t1_blocked_str}\n\n"
+        tg_report_text += f"🏭 <b>TCF2 LINE (Harrier / Safari):</b>\n"
+        tg_report_text += f" • ✅ Ready for TCF: <b>{t2_ready}</b>\n"
+        tg_report_text += f" • 🚫 Blocked: {t2_blocked_str}\n\n"
+        tg_report_text += f"⚡ <b>Punch EV (Nova) Material Stock Status (Current VIN Qty: {nova_vin_qty}):</b>\n"
+        
+        if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
+            for idx, r_n in st.session_state.nova_materials_df.iterrows():
+                m_name = str(r_n['Material']).strip()
+                if 'new_nova_input_vals' in locals() and m_name in new_nova_input_vals:
+                    open_qty = int(new_nova_input_vals[m_name])
+                else:
+                    open_qty = int(r_n['Clearance Qty'])
+                icon = "🟢" if open_qty >= nova_vin_qty and open_qty > 0 else ("🟡" if open_qty > 0 else "🔴")
+                tg_report_text += f" • {icon} {m_name}: <b>{open_qty}</b>\n"
+                
+        st.markdown(f"<div style='background: rgba(15, 23, 42, 0.05); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all;'>{tg_report_text}</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        if st.button("🚀 Send Summary Report to Telegram Now", type="primary", use_container_width=True, key="send_tg_report_main_btn"):
+            ok, res_msg = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_text)
+            if ok:
+                st.toast("🚀 Summary report successfully sent to Telegram!", icon="🚀")
+                st.success("✅ Report dispatched to Telegram successfully!")
+            else:
+                st.error(res_msg)
+
+
 # ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
 with tcf_tabs[0]:
     st.markdown("### 📊 Paint Shop Float Summary")
@@ -2126,7 +2435,10 @@ with tcf_tabs[0]:
         # Nova
         part_nova = "546816111212"
         model_nova = "Nova"
-        clearance_nova = engine_stocks_dict.get(part_nova, 0)
+        if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None and not st.session_state.nova_materials_df.empty:
+            clearance_nova = int(st.session_state.nova_materials_df['Clearance Qty'].min())
+        else:
+            clearance_nova = 182
         today_vin_nova = today_vin_dict.get(part_nova, 0)
         bal_nova = clearance_nova - today_vin_nova
         pbs_nova = pbs_float_dict.get(part_nova, 0)
@@ -2135,7 +2447,7 @@ with tcf_tabs[0]:
         row_nova = {
             'Engine Part No': part_nova,
             'Model': model_nova,
-            'TA Code': engine_ta_dict.get(part_nova, '—'),
+            'TA Code': engine_ta_dict.get(part_nova, '5468'),
             'Clearance After 6:30AM': clearance_nova,
             'Today VIN': today_vin_nova,
             'Bal': bal_nova,
@@ -2148,7 +2460,7 @@ with tcf_tabs[0]:
             'Type': 'row'
         }
         table2_rows.append(row_nova)
-        
+
         # TCF1 Grand Total
         tcf1_grand = {
             'Engine Part No': '',
@@ -2219,7 +2531,7 @@ with tcf_tabs[0]:
         # Harrier EV
         part_hev = "547380400103"
         model_hev = "Harrier EV"
-        clearance_hev = engine_stocks_dict.get(part_hev, 0)
+        clearance_hev = 160
         today_vin_hev = today_vin_dict.get(part_hev, 0)
         bal_hev = clearance_hev - today_vin_hev
         pbs_hev = pbs_float_dict.get(part_hev, 0)
@@ -2228,7 +2540,7 @@ with tcf_tabs[0]:
         row_hev = {
             'Engine Part No': part_hev,
             'Model': model_hev,
-            'TA Code': engine_ta_dict.get(part_hev, '—'),
+            'TA Code': engine_ta_dict.get(part_hev, '5473'),
             'Clearance After 6:30AM': clearance_hev,
             'Today VIN': today_vin_hev,
             'Bal': bal_hev,
@@ -2381,6 +2693,11 @@ with tcf_tabs[0]:
             else:
                 local_engine_to_model = {item['Engine Part No']: item['Model'] for item in engine_default_data}
                 local_engine_to_line = {item['Engine Part No']: item['TCF Line'] for item in engine_default_data}
+
+            local_engine_to_model['546816111212'] = 'Punch EV (Nova)'
+            local_engine_to_line['546816111212'] = 'TCF1'
+            local_engine_to_model['547380400103'] = 'Harrier EV'
+            local_engine_to_line['547380400103'] = 'TCF2'
 
             vc_to_part = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df[part_col_name].astype(str).str.strip()))
             

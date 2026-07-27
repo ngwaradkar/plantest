@@ -42,9 +42,7 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
             true_stock[part_no] -= cnt
             consumed[part_no] += cnt
         else:
-            # Consumed a part that wasn't in starting stock file
-            true_stock[part_no] = -cnt
-            consumed[part_no] = cnt
+            consumed[part_no] = consumed.get(part_no, 0) + cnt
             
     # Check for negative true stock
     for part, qty in true_stock.items():
@@ -53,7 +51,7 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
             
     return true_stock, consumed, warnings
 
-def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
+def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_nova=None):
     """
     Runs the FIFO allocation loop for PBS cabs.
     - pbs_queue: DataFrame of cabs in PBS (sorted FIFO by PBS LIFT, HOLD BY is null)
@@ -61,6 +59,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
     - true_engine: dict of true stock for Engines (None if not available)
     - true_cockpit: dict of true stock for Cockpits (None if not available)
     - true_wiring: dict of true stock for Wiring (None if not available)
+    - true_nova: dict of Punch EV material stocks (Battery, Combo, Tube Frame(Craddle), Subframe, RTB)
     
     Returns:
       - results: list of dicts representing allocated cabs
@@ -70,6 +69,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
     virt_engine = true_engine.copy() if true_engine is not None else None
     virt_cockpit = true_cockpit.copy() if true_cockpit is not None else None
     virt_wiring = true_wiring.copy() if true_wiring is not None else None
+    virt_nova = true_nova.copy() if true_nova is not None else None
     
     results = []
     
@@ -78,7 +78,8 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
         return [], {
             'engine': virt_engine,
             'cockpit': virt_cockpit,
-            'wiring': virt_wiring
+            'wiring': virt_wiring,
+            'nova': virt_nova
         }
         
     # Process cabs in FIFO order
@@ -167,8 +168,16 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
         
         shortages = []
         
-        # Engine / Battery stock check
-        if virt_engine is not None:
+        # Engine / Battery / Punch EV stock check
+        if eng_part_str == '546816111212' and virt_nova:
+            nova_shortages = []
+            for mat_name, mat_qty in virt_nova.items():
+                if mat_qty <= 0:
+                    nova_shortages.append(f"{mat_name} 546816111212 (Stock: {mat_qty})")
+            if nova_shortages:
+                has_engine = False
+                shortages.extend(nova_shortages)
+        elif virt_engine is not None:
             stock = virt_engine.get(eng_part_str, 0)
             if stock <= 0:
                 has_engine = False
@@ -177,14 +186,14 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
                 shortages.append(f"{part_lbl} {eng_part_str} (Stock: {stock})")
                 
         # Cockpit stock check
-        if virt_cockpit is not None:
+        if virt_cockpit is not None and ck_part_str in virt_cockpit:
             stock = virt_cockpit.get(ck_part_str, 0)
             if stock <= 0:
                 has_cockpit = False
                 shortages.append(f"Cockpit {ck_part_str} (Stock: {stock})")
                 
         # Wiring stock check
-        if virt_wiring is not None:
+        if virt_wiring is not None and wh_part_str in virt_wiring:
             stock = virt_wiring.get(wh_part_str, 0)
             if stock <= 0:
                 has_wiring = False
@@ -195,6 +204,9 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring):
             # Decrement stocks
             if virt_engine is not None and eng_part_str in virt_engine:
                 virt_engine[eng_part_str] -= 1
+            if eng_part_str == '546816111212' and virt_nova:
+                for mat_name in virt_nova:
+                    virt_nova[mat_name] -= 1
             if virt_cockpit is not None and ck_part_str in virt_cockpit:
                 virt_cockpit[ck_part_str] -= 1
             if virt_wiring is not None and wh_part_str in virt_wiring:
