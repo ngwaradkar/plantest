@@ -1966,14 +1966,15 @@ with tcf_tabs[5]:
 
         nova_vin_qty = 0
         if tcf1_drops is not None and not tcf1_drops.empty:
-            nova_drops = tcf1_drops[
-                tcf1_drops['Model'].astype(str).str.contains('Nova|Punch EV', case=False, na=False) |
-                tcf1_drops['VEHICLE CODE'].astype(str).str.startswith('5468')
-            ]
+            vin_match_col = 'Model_Family' if 'Model_Family' in tcf1_drops.columns else ('Model' if 'Model' in tcf1_drops.columns else None)
+            if vin_match_col:
+                nova_drops = tcf1_drops[tcf1_drops[vin_match_col] == 'PUNCH.EV']
+            else:
+                nova_drops = tcf1_drops[tcf1_drops['VEHICLE CODE'].astype(str).str.startswith('5468')]
             nova_vin_qty = int(nova_drops['VIN_Count'].sum()) if 'VIN_Count' in nova_drops.columns else len(nova_drops)
         elif not tcf1_alloc_df.empty:
             nova_cabs = tcf1_alloc_df[
-                tcf1_alloc_df['Model'].astype(str).str.contains('Nova|Punch EV', case=False, na=False) |
+                tcf1_alloc_df['Model'].astype(str).str.contains('Nova|Punch EV|PUNCH.EV', case=False, na=False, regex=True) |
                 tcf1_alloc_df['VEHICLE CODE'].astype(str).str.startswith('5468')
             ]
             nova_vin_qty = len(nova_cabs)
@@ -1993,7 +1994,7 @@ with tcf_tabs[5]:
         tg_report_1_text += f"PBS Cab details-\n\n"
         tg_report_1_text += f"TCF1 - {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} - Material Shortage)\n"
         tg_report_1_text += f"TCF 2 - {t2_pbs_total} ( {t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
-        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_total_float_qty if nova_total_float_qty > 0 else nova_vin_qty}):\n"
+        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_vin_qty}):\n"
         tg_report_1_text += f"⏲️ Current Material clearance after 06:30 AM:\n"
 
         if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
