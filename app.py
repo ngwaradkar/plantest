@@ -23,6 +23,17 @@ def format_ist_now(fmt="%d-%m-%Y %I:%M %p"):
     """Returns formatted current IST time string."""
     return get_ist_now().strftime(fmt)
 
+def format_ist_nearest_15min():
+    """Returns formatted IST time string rounded to the nearest 15-minute interval (e.g. 03.15 PM, 09.45 AM)."""
+    dt = get_ist_now()
+    rem = dt.minute % 15
+    if rem >= 8:
+        add_minutes = 15 - rem
+    else:
+        add_minutes = -rem
+    rounded_dt = dt + datetime.timedelta(minutes=add_minutes)
+    return rounded_dt.strftime("%I.%M %p")
+
 def format_ist_mtime(filepath, fmt="%d-%m-%Y %I:%M %p"):
     """Returns formatted file modification time converted to IST."""
     try:
@@ -1899,19 +1910,20 @@ with tcf_tabs[5]:
                     st.error(status_lbl)
 
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
     with st.container(border=True):
         st.markdown("#### 📊 Report Message Preview & Dispatch")
-        st.markdown("<small style='color:#8896AB'>Preview the live report message layout before sending to Telegram</small>", unsafe_allow_html=True)
+        st.markdown("<small style='color:#8896AB'>Select report type to preview and dispatch via Telegram</small>", unsafe_allow_html=True)
 
         # Helper function for detailed blocked reasons summary
         def format_blocked_summary(alloc_df):
             if alloc_df is None or alloc_df.empty:
-                return "<b>0</b>"
+                return "0"
             
             blocked_df = alloc_df[alloc_df['STATUS'].astype(str).str.contains('Blocked|Hold')].copy()
             tot_blocked = len(blocked_df)
             if tot_blocked == 0:
-                return "<b>0</b>"
+                return "0"
                 
             reason_counts = {}
             for idx, r in blocked_df.iterrows():
@@ -1936,54 +1948,145 @@ with tcf_tabs[5]:
             breakdown_str = ", ".join(breakdown_items)
             return f"{tot_blocked} ({breakdown_str})"
 
-        # Generate Telegram Report Text
-        now_str = format_ist_now("%d-%m-%Y %I:%M %p")
-        
+        # ----------------- REPORT 1: TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT -----------------
+        t1_vin_gen = int(tcf1_drops['VIN_Count'].sum()) if (tcf1_drops is not None and not tcf1_drops.empty and 'VIN_Count' in tcf1_drops.columns) else (len(tcf1_drops) if tcf1_drops is not None else 0)
+        t2_vin_gen = int(tcf2_drops['VIN_Count'].sum()) if (tcf2_drops is not None and not tcf2_drops.empty and 'VIN_Count' in tcf2_drops.columns) else (len(tcf2_drops) if tcf2_drops is not None else 0)
+
         t1_ready = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 0
-        t1_blocked_str = format_blocked_summary(tcf1_alloc_df)
-        
+        t1_shortages_cnt = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf1_alloc_df.empty else 0
+        t1_blocked_summary = format_blocked_summary(tcf1_alloc_df)
+
         t2_ready = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
-        t2_blocked_str = format_blocked_summary(tcf2_alloc_df)
-        
-        # Calculate Nova VIN Count in TCF1 Allocation Queue
+        t2_shortages_cnt = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf2_alloc_df.empty else 0
+        t2_blocked_summary = format_blocked_summary(tcf2_alloc_df)
+
+        t1_pbs_total = len(pbs_all[pbs_all['SHOP'] == 'TCF1']) if (float_df is not None and not float_df.empty and 'pbs_all' in locals() and not pbs_all.empty) else len(tcf1_alloc_df)
+        t1_qa_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF1']) if ('pbs_on_hold' in locals() and not pbs_on_hold.empty) else 0
+
+        t2_pbs_total = len(pbs_all[pbs_all['SHOP'] == 'TCF2']) if (float_df is not None and not float_df.empty and 'pbs_all' in locals() and not pbs_all.empty) else len(tcf2_alloc_df)
+        t2_qa_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF2']) if ('pbs_on_hold' in locals() and not pbs_on_hold.empty) else 0
+
+        # Nova VIN Qty
         nova_vin_qty = 0
-        if not tcf1_alloc_df.empty:
+        if tcf1_drops is not None and not tcf1_drops.empty:
+            nova_drops = tcf1_drops[
+                tcf1_drops['Model'].astype(str).str.contains('Nova|Punch EV', case=False, na=False) |
+                tcf1_drops['VEHICLE CODE'].astype(str).str.startswith('5468')
+            ]
+            nova_vin_qty = int(nova_drops['VIN_Count'].sum()) if 'VIN_Count' in nova_drops.columns else len(nova_drops)
+        elif not tcf1_alloc_df.empty:
             nova_cabs = tcf1_alloc_df[
                 tcf1_alloc_df['Model'].astype(str).str.contains('Nova|Punch EV', case=False, na=False) |
                 tcf1_alloc_df['VEHICLE CODE'].astype(str).str.startswith('5468')
             ]
             nova_vin_qty = len(nova_cabs)
 
-        tg_report_text = f"📊 TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT\n"
-        tg_report_text += f"⏰ Report Time: {now_str}\n\n"
-        tg_report_text += f"🏭 TCF1 LINE (Altroz / Punch / Punch EV):\n"
-        tg_report_text += f" • ✅ Ready for TCF: {t1_ready}\n"
-        tg_report_text += f" • 🚫 Blocked: {t1_blocked_str}\n\n"
-        tg_report_text += f"🏭 TCF2 LINE (Harrier / Safari):\n"
-        tg_report_text += f" • ✅ Ready for TCF: {t2_ready}\n"
-        tg_report_text += f" • 🚫 Blocked: {t2_blocked_str}\n\n"
-        tg_report_text += f"⚡ Punch EV (Nova) Material Stock Status (Current VIN Qty: {nova_vin_qty}):\n"
-        
+        now_str_r1 = format_ist_now("%d-%m-%Y %I:%M %p")
+        tg_report_1_text = f"📊 TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT\n"
+        tg_report_1_text += f"⏰ Report Time: {now_str_r1}\n\n"
+        tg_report_1_text += f"🏭 TCF1 LINE (Punch / Punch EV):\n"
+        tg_report_1_text += f"🆔 VIN GENERATION - {t1_vin_gen}\n"
+        tg_report_1_text += f" • ✅ Ready for TCF: {t1_ready}\n"
+        tg_report_1_text += f" • 🚫 Shortages: {t1_blocked_summary}\n\n"
+        tg_report_1_text += f"🏭 TCF2 LINE (Harrier / Safari):\n"
+        tg_report_1_text += f"🆔 VIN GENERATION - {t2_vin_gen}\n"
+        tg_report_1_text += f" • ✅ Ready for TCF: {t2_ready}\n"
+        tg_report_1_text += f" • 🚫 Shortages: {t2_blocked_summary}\n\n"
+        tg_report_1_text += f"🅿️ PBS Cab details-\n\n"
+        tg_report_1_text += f"• TCF1 - {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} - Material Shortage)\n"
+        tg_report_1_text += f"• TCF 2 - {t2_pbs_total} ({t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
+        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_vin_qty}:\n"
+        tg_report_1_text += f"⏲️ Current Material clearance after 06:30 AM:\n"
+
         if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
             for idx, r_n in st.session_state.nova_materials_df.iterrows():
                 m_name = str(r_n['Material']).strip()
+                m_name_clean = m_name.replace('Craddle', 'Cradle')
                 if 'new_nova_input_vals' in locals() and m_name in new_nova_input_vals:
                     open_qty = int(new_nova_input_vals[m_name])
                 else:
                     open_qty = int(r_n['Clearance Qty'])
                 icon = "🟢" if open_qty >= nova_vin_qty and open_qty > 0 else ("🟡" if open_qty > 0 else "🔴")
-                tg_report_text += f" • {icon} {m_name}: {open_qty}\n"
+                tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
+
+        # ----------------- REPORT 2: PUNCH EV (NOVA) EXECUTIVE STATUS REPORT -----------------
+        now_time_r2 = format_ist_nearest_15min()
+        nova_paint_float_cnt = 0
+        nova_pbs_cnt = 0
+
+        if float_df is not None and not float_df.empty:
+            is_nova_mask = (
+                float_df['PRODUCT'].astype(str).str.upper().str.contains('NOVA') |
+                float_df['VEHICLE CODE'].astype(str).str.startswith('5468')
+            )
+            nova_float_cabs = float_df[is_nova_mask]
+            # Current Paint Float = Total Float Qty for Punch EV (Nova)
+            nova_paint_float_cnt = len(nova_float_cabs)
+            nova_pbs_cnt = len(nova_float_cabs[nova_float_cabs['PBS LIFT'].notna()])
+
+        tg_report_2_text = f"Dear sir,\n\n"
+        tg_report_2_text += f"Nova Status as on {now_time_r2}\n\n"
+        tg_report_2_text += f"VIN: {nova_vin_qty}\n\n"
+        tg_report_2_text += f"Current Paint Float: {nova_paint_float_cnt}\n"
+        tg_report_2_text += f"PBS: {nova_pbs_cnt}\n\n"
+        tg_report_2_text += f"Today's Material Clearance (after 06:30 AM):\n\n"
+
+        if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
+            for idx, r_n in st.session_state.nova_materials_df.iterrows():
+                m_name = str(r_n['Material']).strip()
+                m_name_clean = m_name.replace('Craddle', 'Cradle')
+                if 'new_nova_input_vals' in locals() and m_name in new_nova_input_vals:
+                    open_qty = int(new_nova_input_vals[m_name])
+                else:
+                    open_qty = int(r_n['Clearance Qty'])
                 
-        st.markdown(f"<div style='background: rgba(15, 23, 42, 0.05); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all;'>{tg_report_text}</div>", unsafe_allow_html=True)
-        
+                if open_qty < nova_vin_qty or m_name in ['Battery', 'Subframe']:
+                    tg_report_2_text += f"*{m_name_clean}: {open_qty}*\n"
+                else:
+                    tg_report_2_text += f"{m_name_clean}: {open_qty}\n"
+
+        # Tabbed preview & dispatch options
+        report_tab1, report_tab2 = st.tabs([
+            "📊 Report 1: TCF1 & TCF2 PPC Planner Dashboard Report",
+            "⚡ Report 2: Punch EV (Nova) Status Report"
+        ])
+
+        with report_tab1:
+            st.markdown("##### 📊 TCF1 & TCF2 PPC Planner Dashboard Report Preview")
+            st.markdown(f"<div style='background: rgba(15, 23, 42, 0.05); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all;'>{tg_report_1_text}</div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+            if st.button("🚀 Send TCF1 & TCF2 Report to Telegram", type="primary", use_container_width=True, key="send_tg_report_1_btn"):
+                ok, res_msg = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_1_text)
+                if ok:
+                    st.toast("🚀 TCF1 & TCF2 Report successfully sent to Telegram!", icon="🚀")
+                    st.success("✅ TCF1 & TCF2 Report dispatched successfully!")
+                else:
+                    st.error(res_msg)
+
+        with report_tab2:
+            st.markdown("##### ⚡ Punch EV (Nova) Status Report Preview")
+            st.markdown(f"<div style='background: rgba(15, 23, 42, 0.05); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all;'>{tg_report_2_text}</div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+            if st.button("🚀 Send Nova Status Report to Telegram", type="primary", use_container_width=True, key="send_tg_report_2_btn"):
+                ok, res_msg = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_2_text)
+                if ok:
+                    st.toast("🚀 Nova Status Report successfully sent to Telegram!", icon="🚀")
+                    st.success("✅ Nova Status Report dispatched successfully!")
+                else:
+                    st.error(res_msg)
+
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-        if st.button("🚀 Send Summary Report to Telegram Now", type="primary", use_container_width=True, key="send_tg_report_main_btn"):
-            ok, res_msg = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_text)
-            if ok:
-                st.toast("🚀 Summary report successfully sent to Telegram!", icon="🚀")
-                st.success("✅ Report dispatched to Telegram successfully!")
+        if st.button("⚡🚀 Send BOTH Reports to Telegram Now", type="secondary", use_container_width=True, key="send_both_tg_reports_btn"):
+            ok1, res_msg1 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_1_text)
+            ok2, res_msg2 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_2_text)
+            if ok1 and ok2:
+                st.toast("🚀 Both reports successfully sent to Telegram!", icon="🚀")
+                st.success("✅ Both reports (TCF1 & TCF2 PPC Planner Report & Nova Status Report) dispatched successfully!")
             else:
-                st.error(res_msg)
+                if not ok1:
+                    st.error(f"Report 1 Error: {res_msg1}")
+                if not ok2:
+                    st.error(f"Report 2 Error: {res_msg2}")
 
 
 # ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
