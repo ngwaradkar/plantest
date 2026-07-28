@@ -2017,7 +2017,7 @@ with tcf_tabs[5]:
         if 'paint_summary_dict' in locals() and paint_summary_dict and 'PUNCH.EV' in paint_summary_dict:
             m_nova = paint_summary_dict['PUNCH.EV']
             nova_paint_float_cnt = m_nova.get('TOTAL FLOAT', 0)
-            nova_pbs_cnt = m_nova.get('PBS TO POLISHING', m_nova.get('PBS FLOAT', 0))
+            nova_pbs_cnt = m_nova.get('PBS FLOAT', 0)
         elif float_df is not None and not float_df.empty:
             is_nova_mask = (
                 float_df['PRODUCT'].astype(str).str.upper().str.contains('NOVA') |
@@ -2045,7 +2045,8 @@ with tcf_tabs[5]:
                 else:
                     open_qty = int(r_n['Clearance Qty'])
                 
-                if open_qty < nova_vin_qty or any(k in m_name_clean for k in ['Battery', 'Subframe']):
+                # Add * to lower stock qty only (stock < VIN Qty)
+                if open_qty < nova_vin_qty:
                     tg_report_2_text += f"*{m_name_clean}: {open_qty}*\n"
                 else:
                     tg_report_2_text += f"{m_name_clean}: {open_qty}\n"
