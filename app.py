@@ -1981,7 +1981,7 @@ with tcf_tabs[5]:
         tg_report_1_text += f" • 🚫 Shortages: {t2_blocked_summary}\n\n"
         tg_report_1_text += f"🅿️ PBS Cab details-\n\n"
         tg_report_1_text += f"• TCF1 - {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} - Material Shortage)\n"
-        tg_report_1_text += f"• TCF 2 - {t2_pbs_total} ({t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
+        tg_report_1_text += f"• TCF2 - {t2_pbs_total} ({t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
         tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_vin_qty}:\n"
         tg_report_1_text += f"⏲️ Current Material clearance after 06:30 AM:\n"
 
@@ -2001,7 +2001,11 @@ with tcf_tabs[5]:
         nova_paint_float_cnt = 0
         nova_pbs_cnt = 0
 
-        if float_df is not None and not float_df.empty:
+        if 'paint_summary_dict' in locals() and paint_summary_dict and 'PUNCH.EV' in paint_summary_dict:
+            m_nova = paint_summary_dict['PUNCH.EV']
+            nova_paint_float_cnt = m_nova.get('TOTAL FLOAT', 0)
+            nova_pbs_cnt = m_nova.get('PBS TO POLISHING', m_nova.get('PBS FLOAT', 0))
+        elif float_df is not None and not float_df.empty:
             is_nova_mask = (
                 float_df['PRODUCT'].astype(str).str.upper().str.contains('NOVA') |
                 float_df['VEHICLE CODE'].astype(str).str.startswith('5468')
