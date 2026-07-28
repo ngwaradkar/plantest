@@ -1953,7 +1953,17 @@ with tcf_tabs[5]:
         t2_pbs_total = len(pbs_all[pbs_all['SHOP'] == 'TCF2']) if (float_df is not None and not float_df.empty and 'pbs_all' in locals() and not pbs_all.empty) else len(tcf2_alloc_df)
         t2_qa_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF2']) if ('pbs_on_hold' in locals() and not pbs_on_hold.empty) else 0
 
-        # Nova VIN Qty
+        # Nova Total Float Qty (124) and Nova Today VIN Qty (30)
+        nova_total_float_qty = 0
+        if 'paint_summary_dict' in locals() and paint_summary_dict and 'PUNCH.EV' in paint_summary_dict:
+            nova_total_float_qty = paint_summary_dict['PUNCH.EV'].get('TOTAL FLOAT', 0)
+        elif float_df is not None and not float_df.empty:
+            is_nova_mask = (
+                float_df['PRODUCT'].astype(str).str.upper().str.contains('NOVA') |
+                float_df['VEHICLE CODE'].astype(str).str.startswith('5468')
+            )
+            nova_total_float_qty = len(float_df[is_nova_mask])
+
         nova_vin_qty = 0
         if tcf1_drops is not None and not tcf1_drops.empty:
             nova_drops = tcf1_drops[
@@ -1968,27 +1978,30 @@ with tcf_tabs[5]:
             ]
             nova_vin_qty = len(nova_cabs)
 
+        # ----------------- REPORT 1: TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT -----------------
         now_str_r1 = format_ist_now("%d-%m-%Y %I:%M %p")
         tg_report_1_text = f"📊 TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT\n"
         tg_report_1_text += f"⏰ Report Time: {now_str_r1}\n\n"
         tg_report_1_text += f"🏭 TCF1 LINE (Punch / Punch EV):\n"
-        tg_report_1_text += f"🆔 VIN GENERATION - {t1_vin_gen}\n"
+        tg_report_1_text += f"VIN GENERATION - {t1_vin_gen}\n"
         tg_report_1_text += f" • ✅ Ready for TCF: {t1_ready}\n"
         tg_report_1_text += f" • 🚫 Shortages: {t1_blocked_summary}\n\n"
         tg_report_1_text += f"🏭 TCF2 LINE (Harrier / Safari):\n"
-        tg_report_1_text += f"🆔 VIN GENERATION - {t2_vin_gen}\n"
+        tg_report_1_text += f"VIN generation - {t2_vin_gen}\n"
         tg_report_1_text += f" • ✅ Ready for TCF: {t2_ready}\n"
         tg_report_1_text += f" • 🚫 Shortages: {t2_blocked_summary}\n\n"
-        tg_report_1_text += f"🅿️ PBS Cab details-\n\n"
-        tg_report_1_text += f"• TCF1 - {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} - Material Shortage)\n"
-        tg_report_1_text += f"• TCF2 - {t2_pbs_total} ({t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
-        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_vin_qty}:\n"
+        tg_report_1_text += f"PBS Cab details-\n\n"
+        tg_report_1_text += f"TCF1 - {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} - Material Shortage)\n"
+        tg_report_1_text += f"TCF 2 - {t2_pbs_total} ( {t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
+        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_total_float_qty if nova_total_float_qty > 0 else nova_vin_qty}):\n"
         tg_report_1_text += f"⏲️ Current Material clearance after 06:30 AM:\n"
 
         if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
             for idx, r_n in st.session_state.nova_materials_df.iterrows():
                 m_name = str(r_n['Material']).strip()
                 m_name_clean = m_name.replace('Craddle', 'Cradle')
+                if 'Tube Frame' in m_name_clean and 'Tube Frame (' not in m_name_clean:
+                    m_name_clean = m_name_clean.replace('Tube Frame(', 'Tube Frame (')
                 if 'new_nova_input_vals' in locals() and m_name in new_nova_input_vals:
                     open_qty = int(new_nova_input_vals[m_name])
                 else:
@@ -1997,7 +2010,7 @@ with tcf_tabs[5]:
                 tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
 
         # ----------------- REPORT 2: PUNCH EV (NOVA) EXECUTIVE STATUS REPORT -----------------
-        now_time_r2 = format_ist_nearest_15min()
+        now_time_r2 = format_ist_nearest_15min().replace(" ", "")  # e.g. "04.15PM"
         nova_paint_float_cnt = 0
         nova_pbs_cnt = 0
 
@@ -2011,7 +2024,6 @@ with tcf_tabs[5]:
                 float_df['VEHICLE CODE'].astype(str).str.startswith('5468')
             )
             nova_float_cabs = float_df[is_nova_mask]
-            # Current Paint Float = Total Float Qty for Punch EV (Nova)
             nova_paint_float_cnt = len(nova_float_cabs)
             nova_pbs_cnt = len(nova_float_cabs[nova_float_cabs['PBS LIFT'].notna()])
 
@@ -2026,12 +2038,14 @@ with tcf_tabs[5]:
             for idx, r_n in st.session_state.nova_materials_df.iterrows():
                 m_name = str(r_n['Material']).strip()
                 m_name_clean = m_name.replace('Craddle', 'Cradle')
+                if 'Tube Frame' in m_name_clean and 'Tube Frame (' not in m_name_clean:
+                    m_name_clean = m_name_clean.replace('Tube Frame(', 'Tube Frame (')
                 if 'new_nova_input_vals' in locals() and m_name in new_nova_input_vals:
                     open_qty = int(new_nova_input_vals[m_name])
                 else:
                     open_qty = int(r_n['Clearance Qty'])
                 
-                if open_qty < nova_vin_qty or m_name in ['Battery', 'Subframe']:
+                if open_qty < nova_vin_qty or any(k in m_name_clean for k in ['Battery', 'Subframe']):
                     tg_report_2_text += f"*{m_name_clean}: {open_qty}*\n"
                 else:
                     tg_report_2_text += f"{m_name_clean}: {open_qty}\n"
