@@ -405,7 +405,6 @@ try:
 except Exception:
     pass
 now = get_ist_now()
-reset_threshold = now.replace(hour=6, minute=30, second=0, microsecond=0)
 
 if 'last_reset_time' not in st.session_state:
     if db_last_reset:
@@ -461,19 +460,7 @@ if 'telegram_chat_id' not in st.session_state:
     except Exception:
         st.session_state.telegram_chat_id = DEFAULT_TELEGRAM_CHAT_ID
 
-# Auto reset at 6:30 AM is disabled as requested by user
-# if now >= reset_threshold and st.session_state.last_reset_time < reset_threshold:
-#     st.session_state.engine_df = pd.DataFrame(engine_default_data)
-#     try:
-#         dl.save_engine_stocks_to_db(st.session_state.engine_df)
-#     except Exception:
-#         pass
-#     st.session_state.last_reset_time = now
-#     try:
-#         dl.save_metadata('last_reset_time', now.isoformat())
-#     except Exception:
-#         pass
-#     st.toast("🔄 Shift start auto-reset triggered (6:30 AM). Starting stocks cleared.", icon="🔄")
+# Auto reset at 6:30 AM is completely disabled. Data reset is only performed when manually triggered by planner via Control Center.
 
 # Load active directory selection from database metadata
 db_data_source = 'Root Directory (Production)'
