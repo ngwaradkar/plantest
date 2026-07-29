@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import re
+import io
 import matplotlib.pyplot as plt
 import importlib
 import data_loader as dl
@@ -10,6 +11,7 @@ importlib.reload(dl)
 import allocation_engine as ae
 importlib.reload(ae)
 import datetime
+from streamlit_paste_button import paste_image_button
 
 # IST (India Standard Time) Timezone offset = UTC + 5:30
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
@@ -1979,22 +1981,22 @@ with tcf_tabs[5]:
             ]
             nova_vin_qty = len(nova_cabs)
 
-        # ----------------- REPORT 1: TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT -----------------
+        # ----------------- REPORT 1: TCF1 & TCF2 PPC REPORT -----------------
         now_str_r1 = format_ist_now("%d-%m-%Y %I:%M %p")
-        tg_report_1_text = f"📊 TCF1 & TCF2 PPC PLANNER DASHBOARD REPORT\n"
+        tg_report_1_text = f"📊 TCF1 & TCF2 PPC REPORT\n"
         tg_report_1_text += f"⏰ Report Time: {now_str_r1}\n\n"
         tg_report_1_text += f"🏭 TCF1 LINE (Punch / Punch EV):\n"
-        tg_report_1_text += f"VIN GENERATION - {t1_vin_gen}\n"
+        tg_report_1_text += f"🚗 VIN GENERATION - {t1_vin_gen}\n"
         tg_report_1_text += f" • ✅ Ready for TCF: {t1_ready}\n"
         tg_report_1_text += f" • 🚫 Shortages: {t1_blocked_summary}\n\n"
         tg_report_1_text += f"🏭 TCF2 LINE (Harrier / Safari):\n"
-        tg_report_1_text += f"VIN generation - {t2_vin_gen}\n"
+        tg_report_1_text += f"🚗 VIN generation - {t2_vin_gen}\n"
         tg_report_1_text += f" • ✅ Ready for TCF: {t2_ready}\n"
         tg_report_1_text += f" • 🚫 Shortages: {t2_blocked_summary}\n\n"
-        tg_report_1_text += f"PBS Cab details-\n\n"
-        tg_report_1_text += f"TCF1 - {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} - Material Shortage)\n"
-        tg_report_1_text += f"TCF 2 - {t2_pbs_total} ( {t2_qa_hold} QA hold, {t2_shortages_cnt} - Material Shortage)\n\n"
-        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_vin_qty}):\n"
+        tg_report_1_text += f"📦 PBS Cab details:\n\n"
+        tg_report_1_text += f" • 🚜 TCF1: {t1_pbs_total} ({t1_qa_hold} QA hold, {t1_shortages_cnt} Material Shortage)\n"
+        tg_report_1_text += f" • 🚜 TCF2: {t2_pbs_total} ({t2_qa_hold} QA hold, {t2_shortages_cnt} Material Shortage)\n\n"
+        tg_report_1_text += f"⚡ Punch EV (Nova) VIN Qty: {nova_vin_qty}\n"
         tg_report_1_text += f"⏲️ Current Material clearance after 06:30 AM:\n"
 
         if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
@@ -2053,13 +2055,14 @@ with tcf_tabs[5]:
                     tg_report_2_text += f"{m_name_clean}: {open_qty}\n"
 
         # Tabbed preview & dispatch options
-        report_tab1, report_tab2 = st.tabs([
-            "📊 Report 1: TCF1 & TCF2 PPC Planner Dashboard Report",
-            "⚡ Report 2: Punch EV (Nova) Status Report"
+        report_tab1, report_tab2, report_tab3 = st.tabs([
+            "📊 Report 1: TCF1 & TCF2 PPC Report",
+            "⚡ Report 2: Punch EV (Nova) Status Report",
+            "💬 Custom Telegram Dispatcher"
         ])
 
         with report_tab1:
-            st.markdown("##### 📊 TCF1 & TCF2 PPC Planner Dashboard Report Preview")
+            st.markdown("##### 📊 TCF1 & TCF2 PPC Report Preview")
             st.markdown(f"<div style='background: rgba(15, 23, 42, 0.05); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all;'>{tg_report_1_text}</div>", unsafe_allow_html=True)
             st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
             if st.button("🚀 Send TCF1 & TCF2 Report to Telegram", type="primary", use_container_width=True, key="send_tg_report_1_btn"):
@@ -2082,13 +2085,119 @@ with tcf_tabs[5]:
                 else:
                     st.error(res_msg)
 
+        with report_tab3:
+            st.markdown("##### 💬 Custom / Manual Telegram Dispatcher")
+            st.markdown("<small style='color:#8896AB'>Paste any custom text message, paste screenshots directly from clipboard, or attach Excel / document files to send to your mobile via Telegram Bot.</small>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+            custom_text = st.text_area("✍️ Custom Text Message (Optional if uploading file/image):", height=130, placeholder="Type or paste text message here...", key="custom_tg_text_input")
+            
+            c_col1, c_col2 = st.columns(2)
+            img_bytes_to_send = None
+            img_filename_to_send = "screenshot.png"
+
+            with c_col1:
+                st.markdown("##### 🖼️ Image / Screenshot Attachment")
+                st.markdown("<small style='color:#8896AB'>Capture with Snipping Tool (Win + Shift + S), then click below:</small>", unsafe_allow_html=True)
+                
+                pasted_img_res = paste_image_button(
+                    label="📋 Paste Screenshot from Clipboard",
+                    background_color="#2563EB",
+                    text_color="#FFFFFF",
+                    hover_background_color="#1D4ED8",
+                    key="custom_tg_paste_btn"
+                )
+                
+                custom_img = st.file_uploader("Or Upload Image File", type=["png", "jpg", "jpeg", "webp"], key="custom_tg_img_uploader")
+
+                if pasted_img_res and pasted_img_res.image_data is not None:
+                    st.success("✅ Screenshot captured from Clipboard!")
+                    st.image(pasted_img_res.image_data, caption="Clipboard Screenshot Preview", use_column_width=True)
+                    img_buf = io.BytesIO()
+                    pasted_img_res.image_data.save(img_buf, format="PNG")
+                    img_bytes_to_send = img_buf.getvalue()
+                elif custom_img is not None:
+                    img_bytes_to_send = custom_img.getvalue()
+                    img_filename_to_send = custom_img.name
+
+            with c_col2:
+                st.markdown("##### 📁 Excel / Document / Image File Attachment (Option 2)")
+                st.markdown("<small style='color:#8896AB'>Upload ANY files (Excel, PDF, Images PNG/JPG, Word, CSV, ZIP, etc.):</small>", unsafe_allow_html=True)
+                custom_docs = st.file_uploader("Upload Files (Excel, PDF, Images, Documents, etc.)", accept_multiple_files=True, key="custom_tg_doc_uploader")
+
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+            if st.button("🚀 Send Custom Message / Files via Telegram Bot", type="primary", use_container_width=True, key="send_custom_tg_msg_btn"):
+                has_text = bool(custom_text and custom_text.strip())
+                has_img = img_bytes_to_send is not None
+                has_docs = bool(custom_docs)
+
+                if not has_text and not has_img and not has_docs:
+                    st.warning("⚠️ Please enter a text message, paste a screenshot, or select file(s) to send.")
+                else:
+                    bot_token = st.session_state.get('telegram_token', '')
+                    chat_id = st.session_state.get('telegram_chat_id', '')
+
+                    successes = []
+                    errors = []
+                    caption_used = False
+
+                    # 1. Send Text if provided (and no file attachments)
+                    if has_text and not has_img and not has_docs:
+                        ok, msg = dl.send_telegram_message(bot_token, chat_id, custom_text.strip())
+                        if ok:
+                            successes.append("Custom text message sent successfully!")
+                        else:
+                            errors.append(f"Text Message Error: {msg}")
+
+                    # 2. Send Col 1 / Clipboard Image if provided
+                    if has_img:
+                        caption_str = custom_text.strip() if (has_text and not caption_used) else ""
+                        ok, msg = dl.send_telegram_photo(bot_token, chat_id, img_bytes_to_send, caption=caption_str, filename=img_filename_to_send)
+                        if ok:
+                            successes.append(f"Image ({img_filename_to_send}) sent successfully!")
+                            caption_used = True
+                        else:
+                            errors.append(f"Image Error: {msg}")
+
+                    # 3. Send Files from Col 2 (Images, Excel, PDF, Word, etc.)
+                    if has_docs:
+                        for doc_file in custom_docs:
+                            f_bytes = doc_file.getvalue()
+                            f_name = doc_file.name
+                            caption_str = custom_text.strip() if (has_text and not caption_used) else ""
+                            
+                            # Auto-detect if file is an image format
+                            ext = os.path.splitext(f_name)[1].lower()
+                            if ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']:
+                                ok, msg = dl.send_telegram_photo(bot_token, chat_id, f_bytes, caption=caption_str, filename=f_name)
+                                if ok:
+                                    successes.append(f"Image ({f_name}) sent successfully!")
+                                    caption_used = True
+                                else:
+                                    errors.append(f"File Error ({f_name}): {msg}")
+                            else:
+                                ok, msg = dl.send_telegram_document(bot_token, chat_id, f_bytes, caption=caption_str, filename=f_name)
+                                if ok:
+                                    successes.append(f"File ({f_name}) sent successfully!")
+                                    caption_used = True
+                                else:
+                                    errors.append(f"File Error ({f_name}): {msg}")
+
+                    if successes:
+                        for s_msg in successes:
+                            st.toast(f"🚀 {s_msg}", icon="🚀")
+                            st.success(f"✅ {s_msg}")
+                    if errors:
+                        for e_msg in errors:
+                            st.error(f"❌ {e_msg}")
+
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
         if st.button("⚡🚀 Send BOTH Reports to Telegram Now", type="secondary", use_container_width=True, key="send_both_tg_reports_btn"):
             ok1, res_msg1 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_1_text)
             ok2, res_msg2 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_2_text)
             if ok1 and ok2:
                 st.toast("🚀 Both reports successfully sent to Telegram!", icon="🚀")
-                st.success("✅ Both reports (TCF1 & TCF2 PPC Planner Report & Nova Status Report) dispatched successfully!")
+                st.success("✅ Both reports (TCF1 & TCF2 PPC Report & Nova Status Report) dispatched successfully!")
             else:
                 if not ok1:
                     st.error(f"Report 1 Error: {res_msg1}")

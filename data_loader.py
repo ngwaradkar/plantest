@@ -1027,9 +1027,9 @@ def send_telegram_message(bot_token, chat_id, message_text):
     for line in message_text.splitlines():
         if "<b>" in line:
             formatted_lines.append(line)
-        elif line.startswith("📊") or line.startswith("🏭") or line.startswith("⚡"):
+        elif line.startswith("📊") or line.startswith("🏭") or line.startswith("⚡") or line.startswith("📦") or line.startswith("⏰") or line.startswith("🚗"):
             formatted_lines.append(f"<b>{line}</b>")
-        elif "• ✅" in line or "• 🚫" in line or "• 🟢" in line or "• 🟡" in line or "• 🔴" in line:
+        elif "• ✅" in line or "• 🚫" in line or "• 🟢" in line or "• 🟡" in line or "• 🔴" in line or "• 🚜" in line or "🚗" in line:
             parts = line.split(":", 1)
             if len(parts) == 2:
                 formatted_lines.append(f"{parts[0]}: <b>{parts[1].strip()}</b>")
@@ -1059,3 +1059,78 @@ def send_telegram_message(bot_token, chat_id, message_text):
                 return False, f"❌ Telegram API Error: {desc}"
     except Exception as e:
         return False, f"❌ HTTP/Network Error: {e}"
+
+
+def send_telegram_photo(bot_token, chat_id, photo_bytes, caption="", filename="image.png"):
+    """
+    Sends an image file via Telegram Bot API with optional caption.
+    """
+    import requests
+
+    if not bot_token or not str(bot_token).strip():
+        return False, "Telegram Bot Token is missing."
+    if not chat_id or not str(chat_id).strip():
+        return False, "Telegram Chat ID is missing."
+
+    token = str(bot_token).strip()
+    c_id = str(chat_id).strip()
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+
+    files = {
+        'photo': (filename, photo_bytes)
+    }
+    data = {
+        'chat_id': c_id,
+        'parse_mode': 'HTML'
+    }
+    if caption:
+        data['caption'] = caption
+
+    try:
+        res = requests.post(url, data=data, files=files, timeout=30)
+        res_json = res.json()
+        if res_json.get('ok'):
+            return True, "✅ Image sent to Telegram successfully!"
+        else:
+            desc = res_json.get('description', 'Unknown error')
+            return False, f"❌ Telegram API Error: {desc}"
+    except Exception as e:
+        return False, f"❌ HTTP/Network Error: {e}"
+
+
+def send_telegram_document(bot_token, chat_id, file_bytes, caption="", filename="document.xlsx"):
+    """
+    Sends a document or Excel file via Telegram Bot API with optional caption.
+    """
+    import requests
+
+    if not bot_token or not str(bot_token).strip():
+        return False, "Telegram Bot Token is missing."
+    if not chat_id or not str(chat_id).strip():
+        return False, "Telegram Chat ID is missing."
+
+    token = str(bot_token).strip()
+    c_id = str(chat_id).strip()
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+
+    files = {
+        'document': (filename, file_bytes)
+    }
+    data = {
+        'chat_id': c_id,
+        'parse_mode': 'HTML'
+    }
+    if caption:
+        data['caption'] = caption
+
+    try:
+        res = requests.post(url, data=data, files=files, timeout=30)
+        res_json = res.json()
+        if res_json.get('ok'):
+            return True, "✅ Document/Excel file sent to Telegram successfully!"
+        else:
+            desc = res_json.get('description', 'Unknown error')
+            return False, f"❌ Telegram API Error: {desc}"
+    except Exception as e:
+        return False, f"❌ HTTP/Network Error: {e}"
+
