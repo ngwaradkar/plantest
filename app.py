@@ -950,21 +950,19 @@ try:
         true_cockpit_tcf2, ck_cons_tcf2, ck_warn_tcf2 = ae.calculate_true_stock(tcf2_cockpit_start, tcf2_drops, bom_df, 'Cockpit')
         true_wiring_tcf2, wh_cons_tcf2, wh_warn_tcf2 = ae.calculate_true_stock(tcf2_wiring_start, tcf2_drops, bom_df, 'Front Wiring')
         
-        # ----------------- FLOAT QUEUE SEPARATION & ALLOCATION (BIW LIFTING TO PBS FLOAT) -----------------
-        # Split into quality holds vs active allocation queue across all stages
-        is_hold = float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.upper() != 'NONE')
-        pbs_on_hold = float_df[is_hold].copy()
-        pbs_active = float_df[~is_hold].copy()
+        # ----------------- PBS QUEUE ALLOCATION (FOR TCF1 & TCF2 LINE TABS) -----------------
+        # Cabs physically in PBS buffer (PBS LIFT not null)
+        pbs_all = float_df[float_df['PBS LIFT'].notna()].copy()
         
-        # Split active queue by SHOP
+        is_hold_pbs = pbs_all['HOLD BY'].notna() & (pbs_all['HOLD BY'].astype(str).str.strip() != '') & (pbs_all['HOLD BY'].astype(str).str.upper() != 'NONE')
+        pbs_on_hold = pbs_all[is_hold_pbs].copy()
+        pbs_active = pbs_all[~is_hold_pbs].copy()
+        
         tcf1_queue = pbs_active[pbs_active['SHOP'] == 'TCF1'].copy()
         tcf2_queue = pbs_active[pbs_active['SHOP'] == 'TCF2'].copy()
         
-        # Sort chronologically across stages (FIFO: PBS LIFT -> TOPCOAT -> SEALANT -> PTCED -> BIW LIFTING)
-        stage_sort_cols = [c for c in ['PBS LIFT', 'TOPCOAT', 'SEALANT', 'PTCED', 'BIW LIFTING'] if c in float_df.columns]
-        if stage_sort_cols:
-            tcf1_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
-            tcf2_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
+        tcf1_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
+        tcf2_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
         
         # Build Punch EV (Nova) true material stock dict (Starting Clearance minus TCF1 Backflushed Drops)
         true_nova_dict = {}
@@ -975,13 +973,30 @@ try:
                 start_qty = int(r_nova['Clearance Qty'])
                 true_nova_dict[mat_name] = start_qty - nova_backflushed
 
-        # Run allocation engine
+        # Run allocation engine for PBS cabs only (for TCF1 & TCF2 tabs)
         tcf1_alloc, tcf1_final_stocks = ae.run_allocation(tcf1_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1, true_nova=true_nova_dict)
         tcf2_alloc, tcf2_final_stocks = ae.run_allocation(tcf2_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2)
         
-        # Convert allocation lists back to DataFrames
         tcf1_alloc_df = pd.DataFrame(tcf1_alloc)
         tcf2_alloc_df = pd.DataFrame(tcf2_alloc)
+        
+        # ----------------- TOTAL FLOAT QUEUE ALLOCATION (FOR TOTAL FLOAT SEARCH & EXCEL EXPORT) -----------------
+        is_hold_float = float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.upper() != 'NONE')
+        float_active = float_df[~is_hold_float].copy()
+        
+        tcf1_total_queue = float_active[float_active['SHOP'] == 'TCF1'].copy()
+        tcf2_total_queue = float_active[float_active['SHOP'] == 'TCF2'].copy()
+        
+        stage_sort_cols = [c for c in ['PBS LIFT', 'TOPCOAT', 'SEALANT', 'PTCED', 'BIW LIFTING'] if c in float_df.columns]
+        if stage_sort_cols:
+            tcf1_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
+            tcf2_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
+
+        tcf1_total_alloc, _ = ae.run_allocation(tcf1_total_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1, true_nova=true_nova_dict)
+        tcf2_total_alloc, _ = ae.run_allocation(tcf2_total_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2)
+        
+        tcf1_total_alloc_df = pd.DataFrame(tcf1_total_alloc)
+        tcf2_total_alloc_df = pd.DataFrame(tcf2_total_alloc)
         
         # Add Model column by mapping Engine Part No to Model & Line
         if 'engine_df' in st.session_state and not st.session_state.engine_df.empty:
@@ -1099,16 +1114,16 @@ try:
                 vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
                 temp_float_df['Engine_Part'] = temp_float_df['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
             
-            # Map allocation status & blocking reason to temp_float_df
+            # Map total float allocation status & blocking reason to temp_float_df
             alloc_status_map = {}
             alloc_reason_map = {}
-            if 'tcf1_alloc_df' in locals() and not tcf1_alloc_df.empty and 'BIW NUMBER' in tcf1_alloc_df.columns:
-                for idx, r in tcf1_alloc_df.iterrows():
+            if 'tcf1_total_alloc_df' in locals() and not tcf1_total_alloc_df.empty and 'BIW NUMBER' in tcf1_total_alloc_df.columns:
+                for idx, r in tcf1_total_alloc_df.iterrows():
                     b_key = str(r['BIW NUMBER']).strip()
                     alloc_status_map[b_key] = r.get('STATUS', '—')
                     alloc_reason_map[b_key] = r.get('BLOCKING_REASON', None)
-            if 'tcf2_alloc_df' in locals() and not tcf2_alloc_df.empty and 'BIW NUMBER' in tcf2_alloc_df.columns:
-                for idx, r in tcf2_alloc_df.iterrows():
+            if 'tcf2_total_alloc_df' in locals() and not tcf2_total_alloc_df.empty and 'BIW NUMBER' in tcf2_total_alloc_df.columns:
+                for idx, r in tcf2_total_alloc_df.iterrows():
                     b_key = str(r['BIW NUMBER']).strip()
                     alloc_status_map[b_key] = r.get('STATUS', '—')
                     alloc_reason_map[b_key] = r.get('BLOCKING_REASON', None)
@@ -1526,14 +1541,13 @@ with tcf_tabs[1]:
     issue_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'].str.startswith('⚠️', na=False)]) if not tcf1_alloc_df.empty else 0
     total_drops = int(tcf1_drops['VIN_Count'].sum()) if (tcf1_drops is not None and not tcf1_drops.empty and 'VIN_Count' in tcf1_drops.columns) else (len(tcf1_drops) if tcf1_drops is not None else 0)
     
-    tcf1_pbs_cabs = tcf1_queue[tcf1_queue['PBS LIFT'].notna()]
-    tcf1_ok = len(tcf1_pbs_cabs)
-    tcf1_hold = len(pbs_on_hold[(pbs_on_hold['SHOP'] == 'TCF1') & (pbs_on_hold['PBS LIFT'].notna())]) if pbs_on_hold is not None else 0
+    tcf1_ok = len(tcf1_queue)
+    tcf1_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF1']) if pbs_on_hold is not None else 0
     tcf1_total = tcf1_ok + tcf1_hold
     
     kpi_cols = st.columns(4)
     kpi_cols[0].metric("VIN Generation", f"{total_drops} cabs", help="Cabs built in TCF1 since shift start")
-    kpi_cols[1].metric("PBS Current Stock", f"{tcf1_total} cabs (OK: {tcf1_ok} | Hold: {tcf1_hold})", help="Cabs physically in TCF1 PBS buffer (PBS LIFT populated)")
+    kpi_cols[1].metric("PBS Current Stock", f"{tcf1_total} cabs (OK: {tcf1_ok} | Hold: {tcf1_hold})", help="Total cabs in TCF1 PBS buffer (Active unblocked + Quality holds)")
     kpi_cols[2].metric("✅ Ready for TCF", f"{ready_count} cabs", delta=f"+{ready_count} alloc")
     kpi_cols[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count} cabs", delta=f"-{blocked_count} wait", delta_color="inverse")
     
@@ -1744,14 +1758,13 @@ with tcf_tabs[2]:
     issue_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'].str.startswith('⚠️', na=False)]) if not tcf2_alloc_df.empty else 0
     total_drops_tcf2 = int(tcf2_drops['VIN_Count'].sum()) if (tcf2_drops is not None and not tcf2_drops.empty and 'VIN_Count' in tcf2_drops.columns) else (len(tcf2_drops) if tcf2_drops is not None else 0)
     
-    tcf2_pbs_cabs = tcf2_queue[tcf2_queue['PBS LIFT'].notna()]
-    tcf2_ok = len(tcf2_pbs_cabs)
-    tcf2_hold = len(pbs_on_hold[(pbs_on_hold['SHOP'] == 'TCF2') & (pbs_on_hold['PBS LIFT'].notna())]) if pbs_on_hold is not None else 0
+    tcf2_ok = len(tcf2_queue)
+    tcf2_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF2']) if pbs_on_hold is not None else 0
     tcf2_total = tcf2_ok + tcf2_hold
     
     kpi_cols_tcf2 = st.columns(4)
     kpi_cols_tcf2[0].metric("VIN Generation", f"{total_drops_tcf2} cabs", help="Cabs built in TCF2 since shift start")
-    kpi_cols_tcf2[1].metric("PBS Current Stock", f"{tcf2_total} cabs (OK: {tcf2_ok} | Hold: {tcf2_hold})", help="Cabs physically in TCF2 PBS buffer (PBS LIFT populated)")
+    kpi_cols_tcf2[1].metric("PBS Current Stock", f"{tcf2_total} cabs (OK: {tcf2_ok} | Hold: {tcf2_hold})", help="Total cabs in TCF2 PBS buffer (Active unblocked + Quality holds)")
     kpi_cols_tcf2[2].metric("✅ Ready for TCF", f"{ready_count_tcf2} cabs", delta=f"+{ready_count_tcf2} alloc")
     kpi_cols_tcf2[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count_tcf2} cabs", delta=f"-{blocked_count_tcf2} wait", delta_color="inverse")
     
