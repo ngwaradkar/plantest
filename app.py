@@ -950,21 +950,21 @@ try:
         true_cockpit_tcf2, ck_cons_tcf2, ck_warn_tcf2 = ae.calculate_true_stock(tcf2_cockpit_start, tcf2_drops, bom_df, 'Cockpit')
         true_wiring_tcf2, wh_cons_tcf2, wh_warn_tcf2 = ae.calculate_true_stock(tcf2_wiring_start, tcf2_drops, bom_df, 'Front Wiring')
         
-        # ----------------- PBS QUEUE SEPARATION & ALLOCATION -----------------
-        # Cabs in PBS must have PBS LIFT not null
-        pbs_all = float_df[float_df['PBS LIFT'].notna()].copy()
-        
-        # Split into holds vs active allocation queue
-        pbs_on_hold = pbs_all[pbs_all['HOLD BY'].notna()].copy()
-        pbs_active = pbs_all[pbs_all['HOLD BY'].isna()].copy()
+        # ----------------- FLOAT QUEUE SEPARATION & ALLOCATION (BIW LIFTING TO PBS FLOAT) -----------------
+        # Split into quality holds vs active allocation queue across all stages
+        is_hold = float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.upper() != 'NONE')
+        pbs_on_hold = float_df[is_hold].copy()
+        pbs_active = float_df[~is_hold].copy()
         
         # Split active queue by SHOP
         tcf1_queue = pbs_active[pbs_active['SHOP'] == 'TCF1'].copy()
         tcf2_queue = pbs_active[pbs_active['SHOP'] == 'TCF2'].copy()
         
-        # Sort chronologically (FIFO)
-        tcf1_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
-        tcf2_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
+        # Sort chronologically across stages (FIFO: PBS LIFT -> TOPCOAT -> SEALANT -> PTCED -> BIW LIFTING)
+        stage_sort_cols = [c for c in ['PBS LIFT', 'TOPCOAT', 'SEALANT', 'PTCED', 'BIW LIFTING'] if c in float_df.columns]
+        if stage_sort_cols:
+            tcf1_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
+            tcf2_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
         
         # Build Punch EV (Nova) true material stock dict (Starting Clearance minus TCF1 Backflushed Drops)
         true_nova_dict = {}
@@ -1094,6 +1094,46 @@ try:
             if bom_df is not None and not bom_df.empty and 'VEHICLE CODE' in temp_float_df.columns:
                 vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
                 temp_float_df['Engine_Part'] = temp_float_df['VEHICLE CODE'].astype(str).str.strip().str[:9].map(vc_to_engine)
+            
+            # Map allocation status & blocking reason to temp_float_df
+            alloc_status_map = {}
+            alloc_reason_map = {}
+            if 'tcf1_alloc_df' in locals() and not tcf1_alloc_df.empty and 'BIW NUMBER' in tcf1_alloc_df.columns:
+                for idx, r in tcf1_alloc_df.iterrows():
+                    b_key = str(r['BIW NUMBER']).strip()
+                    alloc_status_map[b_key] = r.get('STATUS', '—')
+                    alloc_reason_map[b_key] = r.get('BLOCKING_REASON', None)
+            if 'tcf2_alloc_df' in locals() and not tcf2_alloc_df.empty and 'BIW NUMBER' in tcf2_alloc_df.columns:
+                for idx, r in tcf2_alloc_df.iterrows():
+                    b_key = str(r['BIW NUMBER']).strip()
+                    alloc_status_map[b_key] = r.get('STATUS', '—')
+                    alloc_reason_map[b_key] = r.get('BLOCKING_REASON', None)
+
+            def get_cab_status(row):
+                biw_str = str(row.get('BIW NUMBER', '')).strip()
+                if biw_str in alloc_status_map:
+                    return alloc_status_map[biw_str]
+                hold_by = row.get('HOLD BY')
+                if pd.notna(hold_by) and str(hold_by).strip() not in ['', 'None', 'nan']:
+                    return '⚠️ Quality Hold'
+                return '—'
+
+            def get_cab_blocking_reason(row):
+                biw_str = str(row.get('BIW NUMBER', '')).strip()
+                reason = alloc_reason_map.get(biw_str)
+                if pd.notna(reason) and str(reason).strip() not in ['', 'None', 'nan']:
+                    return str(reason).strip()
+                hold_by = row.get('HOLD BY')
+                reasons_s = row.get('REASONS S')
+                if pd.notna(hold_by) and str(hold_by).strip() not in ['', 'None', 'nan']:
+                    r_str = f"Hold by {hold_by}"
+                    if pd.notna(reasons_s) and str(reasons_s).strip() not in ['', 'None', 'nan']:
+                        r_str += f": {reasons_s}"
+                    return r_str
+                return 'None (Clear)'
+
+            temp_float_df['Status'] = temp_float_df.apply(get_cab_status, axis=1)
+            temp_float_df['Blocking Reason'] = temp_float_df.apply(get_cab_blocking_reason, axis=1)
         else:
             temp_float_df = pd.DataFrame()
 
@@ -1122,6 +1162,7 @@ def render_total_float_details_view(float_df, default_line="All"):
     df_search = float_df.copy()
     if 'Stage' not in df_search.columns:
         df_search['Stage'] = df_search.apply(ae.get_detailed_paint_summary_stage, axis=1)
+    df_search['Cab location'] = df_search['Stage']
         
     # Search & Filter Controls
     c1, c2, c3, c4, c5 = st.columns([2, 2, 2.5, 2, 2])
@@ -1180,7 +1221,8 @@ def render_total_float_details_view(float_df, default_line="All"):
                 <div><strong>Product / Model:</strong> <br>{cab.get('PRODUCT', '—')} - {cab.get('MODEL', '—')}</div>
                 <div><strong>Colour:</strong> <br>{cab.get('COLOUR', '—')}</div>
                 <div><strong>Shop / Line:</strong> <br><strong>{cab.get('SHOP', '—')}</strong></div>
-                <div><strong>Current Stage:</strong> <br><span style="background-color: #3B82F6; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold;">{cab.get('Stage', '—')}</span></div>
+                <div><strong>Allocation Status:</strong> <br><span style="font-weight: bold;">{cab.get('Status', '—')}</span></div>
+                <div><strong>Cab Location / Stage:</strong> <br><span style="background-color: #3B82F6; color: white; padding: 3px 8px; border-radius: 6px; font-weight: bold;">{cab.get('Cab location', cab.get('Stage', '—'))}</span></div>
             </div>
             <hr style="margin: 1rem 0; border: none; border-top: 1px solid {border_c};">
             <div style="font-size: 13px;">
@@ -1191,19 +1233,188 @@ def render_total_float_details_view(float_df, default_line="All"):
 
     # Interactive Data Table
     st.markdown("#### 📋 Float Cab Details")
-    display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'PRODUCT', 'MODEL', 'COLOUR', 'SHOP', 'Stage', 'HOLD BY', 'REASONS S', 'BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT']
+    display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'PRODUCT', 'MODEL', 'COLOUR', 'SHOP', 'Status', 'Blocking Reason', 'Cab location', 'Stage', 'HOLD BY', 'REASONS S', 'BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT']
     available_cols = [c for c in display_cols if c in df_search.columns]
     
     st.dataframe(df_search[available_cols], use_container_width=True, hide_index=True)
     
-    # Export options
+    # Export options with colorful OpenPyXL styling and Ready to TCF Short VC Pivot + Blocked Reason Pivot
     import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
     excel_buffer = io.BytesIO()
+    df_export = df_search[available_cols].copy()
+    
+    # Build Pivot sheet 2 for ONLY Ready to TCF cabs
+    df_search_pivot = df_search.copy()
+    if 'Status' in df_search_pivot.columns:
+        ready_mask = df_search_pivot['Status'].astype(str).str.contains('Ready for TCF', case=False, na=False)
+        df_search_pivot = df_search_pivot[ready_mask].copy()
+        
+    if 'VEHICLE CODE' in df_search_pivot.columns:
+        df_search_pivot['Short VC'] = df_search_pivot['VEHICLE CODE'].astype(str).str.strip().str[:9]
+    elif 'VC' in df_search_pivot.columns:
+        df_search_pivot['Short VC'] = df_search_pivot['VC'].astype(str).str.strip().str[:9]
+    else:
+        df_search_pivot['Short VC'] = ''
+        
+    if 'SHOP' not in df_search_pivot.columns:
+        df_search_pivot['SHOP'] = 'All'
+    if 'MODEL' not in df_search_pivot.columns:
+        df_search_pivot['MODEL'] = df_search_pivot.get('PRODUCT', 'Unknown')
+        
+    if not df_search_pivot.empty:
+        pivot_df = df_search_pivot.groupby(['SHOP', 'MODEL', 'Short VC']).size().reset_index(name='Ready to TCF Qty')
+        tot_row = pd.DataFrame([{'SHOP': 'Total', 'MODEL': '', 'Short VC': '', 'Ready to TCF Qty': pivot_df['Ready to TCF Qty'].sum()}])
+        pivot_df_with_tot = pd.concat([pivot_df, tot_row], ignore_index=True)
+    else:
+        pivot_df_with_tot = pd.DataFrame(columns=['SHOP', 'MODEL', 'Short VC', 'Ready to TCF Qty'])
+        
+    # Build Sheet 3 for Blocked Reason & Short VC Pivot
+    df_blocked_cabs = df_search[df_search['Status'].astype(str).str.contains('Blocked|Hold', case=False, na=False)].copy()
+    if 'VEHICLE CODE' in df_blocked_cabs.columns:
+        df_blocked_cabs['Short VC'] = df_blocked_cabs['VEHICLE CODE'].astype(str).str.strip().str[:9]
+    elif 'VC' in df_blocked_cabs.columns:
+        df_blocked_cabs['Short VC'] = df_blocked_cabs['VC'].astype(str).str.strip().str[:9]
+    else:
+        df_blocked_cabs['Short VC'] = ''
+
+    if 'SHOP' not in df_blocked_cabs.columns:
+        df_blocked_cabs['SHOP'] = 'All'
+    if 'MODEL' not in df_blocked_cabs.columns:
+        df_blocked_cabs['MODEL'] = df_blocked_cabs.get('PRODUCT', 'Unknown')
+    if 'Blocking Reason' not in df_blocked_cabs.columns:
+        df_blocked_cabs['Blocking Reason'] = 'Unknown'
+
+    if not df_blocked_cabs.empty:
+        pivot_blocked = df_blocked_cabs.groupby(['SHOP', 'MODEL', 'Short VC', 'Blocking Reason']).size().reset_index(name='Blocked Cab Qty')
+        tot_blocked_row = pd.DataFrame([{'SHOP': 'Total', 'MODEL': '', 'Short VC': '', 'Blocking Reason': '', 'Blocked Cab Qty': pivot_blocked['Blocked Cab Qty'].sum()}])
+        pivot_blocked_with_tot = pd.concat([pivot_blocked, tot_blocked_row], ignore_index=True)
+    else:
+        pivot_blocked_with_tot = pd.DataFrame(columns=['SHOP', 'MODEL', 'Short VC', 'Blocking Reason', 'Blocked Cab Qty'])
+
     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-        df_search[available_cols].to_excel(writer, index=False, sheet_name='Float Details')
+        df_export.to_excel(writer, index=False, sheet_name='Float Details')
+        pivot_df_with_tot.to_excel(writer, index=False, sheet_name='Ready to Upload Plan')
+        pivot_blocked_with_tot.to_excel(writer, index=False, sheet_name='Blocked Reason Pivot')
+        
+        # Apply colorful & professional styling
+        wb = writer.book
+        
+        header_fill_default = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_fill_blocked = PatternFill(start_color="C65911", end_color="C65911", fill_type="solid")
+        header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        
+        alt_fill_even = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        alt_fill_odd = PatternFill(start_color="F2F4F8", end_color="F2F4F8", fill_type="solid")
+        alt_fill_blocked = PatternFill(start_color="FFF2F2", end_color="FFF2F2", fill_type="solid")
+        
+        total_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        total_fill_blocked = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        total_font = Font(name="Segoe UI", size=11, bold=True, color="1F4E78")
+        total_font_blocked = Font(name="Segoe UI", size=11, bold=True, color="C65911")
+        
+        thin_border = Border(
+            left=Side(style='thin', color='D9D9D9'),
+            right=Side(style='thin', color='D9D9D9'),
+            top=Side(style='thin', color='D9D9D9'),
+            bottom=Side(style='thin', color='D9D9D9')
+        )
+        
+        total_border = Border(
+            top=Side(style='thin', color='1F4E78'),
+            bottom=Side(style='double', color='1F4E78'),
+            left=Side(style='thin', color='D9D9D9'),
+            right=Side(style='thin', color='D9D9D9')
+        )
+
+        total_border_blocked = Border(
+            top=Side(style='thin', color='C65911'),
+            bottom=Side(style='double', color='C65911'),
+            left=Side(style='thin', color='D9D9D9'),
+            right=Side(style='thin', color='D9D9D9')
+        )
+        
+        ready_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+        ready_font = Font(name="Segoe UI", size=10, color="274E13", bold=True)
+        
+        blocked_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        blocked_font = Font(name="Segoe UI", size=10, color="C65911", bold=True)
+
+        hold_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        hold_font = Font(name="Segoe UI", size=10, color="806000", bold=True)
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            ws.views.sheetView[0].showGridLines = True
+            
+            is_blocked_sheet = (sheet_name == 'Blocked Reason Pivot')
+            
+            # Format Header Row
+            ws.row_dimensions[1].height = 26
+            for col_idx in range(1, ws.max_column + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.fill = header_fill_blocked if is_blocked_sheet else header_fill_default
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = thin_border
+                
+            # Format Data Rows
+            for row_idx in range(2, ws.max_row + 1):
+                ws.row_dimensions[row_idx].height = 20
+                is_last_row = (row_idx == ws.max_row) and (sheet_name in ['Ready to Upload Plan', 'Blocked Reason Pivot'])
+                
+                for col_idx in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.border = thin_border
+                    val_str = str(cell.value or '').strip()
+                    
+                    if is_last_row:
+                        cell.fill = total_fill_blocked if is_blocked_sheet else total_fill
+                        cell.font = total_font_blocked if is_blocked_sheet else total_font
+                        cell.border = total_border_blocked if is_blocked_sheet else total_border
+                        if col_idx == ws.max_column or isinstance(cell.value, (int, float)):
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                        else:
+                            cell.alignment = Alignment(horizontal="left", vertical="center")
+                    else:
+                        # Zebra striping
+                        if is_blocked_sheet:
+                            cell.fill = alt_fill_blocked if row_idx % 2 == 0 else alt_fill_even
+                        else:
+                            cell.fill = alt_fill_odd if row_idx % 2 == 0 else alt_fill_even
+                        cell.font = Font(name="Segoe UI", size=10)
+                        
+                        # Highlighting Status values in Float Details sheet
+                        if 'Ready for TCF' in val_str:
+                            cell.fill = ready_fill
+                            cell.font = ready_font
+                        elif 'Blocked' in val_str or 'Shortage' in val_str:
+                            cell.fill = blocked_fill
+                            cell.font = blocked_font
+                        elif 'Hold' in val_str:
+                            cell.fill = hold_fill
+                            cell.font = hold_font
+                            
+                        # Align numbers to right, text to left
+                        if isinstance(cell.value, (int, float)):
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                        else:
+                            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+            # Adjust column widths dynamically
+            for col in ws.columns:
+                max_len = 0
+                col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                for cell in col:
+                    val = str(cell.value or '')
+                    if len(val) > max_len:
+                        max_len = len(val)
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
     
     st.download_button(
-        label="📥 Export Filtered Float Details to Excel",
+        label="📥 Export Float Details & Short VC / Blocked Pivots to Excel",
         data=excel_buffer.getvalue(),
         file_name=f"total_float_details_{default_line}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
