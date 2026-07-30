@@ -1035,13 +1035,17 @@ try:
             
         if not tcf1_alloc_df.empty:
             tcf1_alloc_df['Model'] = map_row_model(tcf1_alloc_df)
+            tcf1_alloc_df['Cab location'] = tcf1_alloc_df.apply(ae.get_detailed_paint_summary_stage, axis=1)
         else:
             tcf1_alloc_df['Model'] = pd.Series(dtype='object')
+            tcf1_alloc_df['Cab location'] = pd.Series(dtype='object')
             
         if not tcf2_alloc_df.empty:
             tcf2_alloc_df['Model'] = map_row_model(tcf2_alloc_df)
+            tcf2_alloc_df['Cab location'] = tcf2_alloc_df.apply(ae.get_detailed_paint_summary_stage, axis=1)
         else:
             tcf2_alloc_df['Model'] = pd.Series(dtype='object')
+            tcf2_alloc_df['Cab location'] = pd.Series(dtype='object')
             
         # Map Engine Part to Model in the raw drop data (VIN Generation)
         if tcf1_drops is not None and not tcf1_drops.empty:
@@ -1522,13 +1526,14 @@ with tcf_tabs[1]:
     issue_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'].str.startswith('⚠️', na=False)]) if not tcf1_alloc_df.empty else 0
     total_drops = int(tcf1_drops['VIN_Count'].sum()) if (tcf1_drops is not None and not tcf1_drops.empty and 'VIN_Count' in tcf1_drops.columns) else (len(tcf1_drops) if tcf1_drops is not None else 0)
     
-    tcf1_ok = len(tcf1_queue)
-    tcf1_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF1']) if pbs_on_hold is not None else 0
+    tcf1_pbs_cabs = tcf1_queue[tcf1_queue['PBS LIFT'].notna()]
+    tcf1_ok = len(tcf1_pbs_cabs)
+    tcf1_hold = len(pbs_on_hold[(pbs_on_hold['SHOP'] == 'TCF1') & (pbs_on_hold['PBS LIFT'].notna())]) if pbs_on_hold is not None else 0
     tcf1_total = tcf1_ok + tcf1_hold
     
     kpi_cols = st.columns(4)
     kpi_cols[0].metric("VIN Generation", f"{total_drops} cabs", help="Cabs built in TCF1 since shift start")
-    kpi_cols[1].metric("PBS Current Stock", f"{tcf1_total} cabs (OK: {tcf1_ok} | Hold: {tcf1_hold})", help="Total cabs in TCF1 PBS buffer (Active unblocked + Quality holds)")
+    kpi_cols[1].metric("PBS Current Stock", f"{tcf1_total} cabs (OK: {tcf1_ok} | Hold: {tcf1_hold})", help="Cabs physically in TCF1 PBS buffer (PBS LIFT populated)")
     kpi_cols[2].metric("✅ Ready for TCF", f"{ready_count} cabs", delta=f"+{ready_count} alloc")
     kpi_cols[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count} cabs", delta=f"-{blocked_count} wait", delta_color="inverse")
     
@@ -1552,11 +1557,19 @@ with tcf_tabs[1]:
                     filtered_df.loc[mask, 'STATUS'] = override['status']
                     filtered_df.loc[mask, 'BLOCKING_REASON'] = override['reason']
             
-            search_biw = st.text_input("🔍 Quick Search by BIW Number:", key="tcf1_biw_search")
+            c_srch1, c_srch2 = st.columns([3, 3])
+            with c_srch1:
+                search_biw = st.text_input("🔍 Quick Search by BIW Number:", key="tcf1_biw_search")
+            with c_srch2:
+                loc_options = ['All Locations'] + sorted(list(filtered_df['Cab location'].dropna().unique())) if 'Cab location' in filtered_df.columns else ['All Locations']
+                selected_loc = st.selectbox("📍 Cab Location Filter:", options=loc_options, key="tcf1_loc_search")
+                
             if search_biw:
                 filtered_df = filtered_df[filtered_df['BIW NUMBER'].astype(str).str.contains(search_biw.strip())]
+            if selected_loc != 'All Locations':
+                filtered_df = filtered_df[filtered_df['Cab location'] == selected_loc]
                 
-            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
+            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Cab location', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
             
             st.caption("✏️ **Planner Edit Mode** — Click any cell in the **Status** or **Blocking Reason** column to change it. Changes are saved automatically.")
             
@@ -1581,6 +1594,7 @@ with tcf_tabs[1]:
                         "BLOCKING REASON",
                         help="Enter blocking/hold reason (e.g., quality issue, part shortage, PBS hold)"
                     ),
+                    "Cab location": st.column_config.TextColumn("Cab Location", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
                     "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
@@ -1730,13 +1744,14 @@ with tcf_tabs[2]:
     issue_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'].str.startswith('⚠️', na=False)]) if not tcf2_alloc_df.empty else 0
     total_drops_tcf2 = int(tcf2_drops['VIN_Count'].sum()) if (tcf2_drops is not None and not tcf2_drops.empty and 'VIN_Count' in tcf2_drops.columns) else (len(tcf2_drops) if tcf2_drops is not None else 0)
     
-    tcf2_ok = len(tcf2_queue)
-    tcf2_hold = len(pbs_on_hold[pbs_on_hold['SHOP'] == 'TCF2']) if pbs_on_hold is not None else 0
+    tcf2_pbs_cabs = tcf2_queue[tcf2_queue['PBS LIFT'].notna()]
+    tcf2_ok = len(tcf2_pbs_cabs)
+    tcf2_hold = len(pbs_on_hold[(pbs_on_hold['SHOP'] == 'TCF2') & (pbs_on_hold['PBS LIFT'].notna())]) if pbs_on_hold is not None else 0
     tcf2_total = tcf2_ok + tcf2_hold
     
     kpi_cols_tcf2 = st.columns(4)
     kpi_cols_tcf2[0].metric("VIN Generation", f"{total_drops_tcf2} cabs", help="Cabs built in TCF2 since shift start")
-    kpi_cols_tcf2[1].metric("PBS Current Stock", f"{tcf2_total} cabs (OK: {tcf2_ok} | Hold: {tcf2_hold})", help="Total cabs in TCF2 PBS buffer (Active unblocked + Quality holds)")
+    kpi_cols_tcf2[1].metric("PBS Current Stock", f"{tcf2_total} cabs (OK: {tcf2_ok} | Hold: {tcf2_hold})", help="Cabs physically in TCF2 PBS buffer (PBS LIFT populated)")
     kpi_cols_tcf2[2].metric("✅ Ready for TCF", f"{ready_count_tcf2} cabs", delta=f"+{ready_count_tcf2} alloc")
     kpi_cols_tcf2[3].metric("🚫 Blocked (Stock Out)", f"{blocked_count_tcf2} cabs", delta=f"-{blocked_count_tcf2} wait", delta_color="inverse")
     
@@ -1760,11 +1775,19 @@ with tcf_tabs[2]:
                     filtered_df_tcf2.loc[mask, 'STATUS'] = override['status']
                     filtered_df_tcf2.loc[mask, 'BLOCKING_REASON'] = override['reason']
             
-            search_biw_tcf2 = st.text_input("🔍 Quick Search by BIW Number:", key="tcf2_biw_search")
+            c_srch1_tcf2, c_srch2_tcf2 = st.columns([3, 3])
+            with c_srch1_tcf2:
+                search_biw_tcf2 = st.text_input("🔍 Quick Search by BIW Number:", key="tcf2_biw_search")
+            with c_srch2_tcf2:
+                loc_options_tcf2 = ['All Locations'] + sorted(list(filtered_df_tcf2['Cab location'].dropna().unique())) if 'Cab location' in filtered_df_tcf2.columns else ['All Locations']
+                selected_loc_tcf2 = st.selectbox("📍 Cab Location Filter:", options=loc_options_tcf2, key="tcf2_loc_search")
+                
             if search_biw_tcf2:
                 filtered_df_tcf2 = filtered_df_tcf2[filtered_df_tcf2['BIW NUMBER'].astype(str).str.contains(search_biw_tcf2.strip())]
+            if selected_loc_tcf2 != 'All Locations':
+                filtered_df_tcf2 = filtered_df_tcf2[filtered_df_tcf2['Cab location'] == selected_loc_tcf2]
                 
-            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
+            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Cab location', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
             
             st.caption("✏️ **Planner Edit Mode** — Click any cell in the **Status** or **Blocking Reason** column to change it. Changes are saved automatically.")
             
@@ -1789,6 +1812,7 @@ with tcf_tabs[2]:
                         "BLOCKING REASON",
                         help="Enter blocking/hold reason (e.g., quality issue, part shortage, PBS hold)"
                     ),
+                    "Cab location": st.column_config.TextColumn("Cab Location", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
                     "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
