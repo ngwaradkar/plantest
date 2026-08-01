@@ -3161,7 +3161,7 @@ with tcf_tabs[0]:
         """)
         
         # Helper to build shortage table for Cockpit or Front Wiring
-        def build_formatted_shortage_table(part_col_name, stock_tcf1, stock_tcf2, bom_df, float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops):
+        def build_formatted_shortage_table(part_col_name, stock_tcf1, stock_tcf2, bom_df, float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops, only_shortage=True):
             if bom_df is None or bom_df.empty:
                 return pd.DataFrame()
                 
@@ -3256,8 +3256,8 @@ with tcf_tabs[0]:
                 sh_sealant = stock - today_vin - sealant
                 sh_total = stock - today_vin - total
                 
-                # Filter to include ONLY items with an actual shortage (negative against float)
-                if sh_pbs < 0 or sh_sealant < 0 or sh_total < 0:
+                # Filter based on only_shortage parameter
+                if not only_shortage or (sh_pbs < 0 or sh_sealant < 0 or sh_total < 0):
                     table_rows.append({
                         header_part_name: part,
                         'Model': ', '.join(sorted(mdls)),
@@ -3274,8 +3274,127 @@ with tcf_tabs[0]:
                 
             return pd.DataFrame(table_rows)
 
-        df_cpt_shortage = build_formatted_shortage_table('Cockpit', tcf1_cockpit_start, tcf2_cockpit_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops)
-        df_wir_shortage = build_formatted_shortage_table('Front Wiring', tcf1_wiring_start, tcf2_wiring_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops)
+        df_cpt_shortage = build_formatted_shortage_table('Cockpit', tcf1_cockpit_start, tcf2_cockpit_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops, only_shortage=True)
+        df_wir_shortage = build_formatted_shortage_table('Front Wiring', tcf1_wiring_start, tcf2_wiring_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops, only_shortage=True)
+        df_cpt_all = build_formatted_shortage_table('Cockpit', tcf1_cockpit_start, tcf2_cockpit_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops, only_shortage=False)
+        df_wir_all = build_formatted_shortage_table('Front Wiring', tcf1_wiring_start, tcf2_wiring_start, bom_df, temp_float_df, paint_summary_vc_dict, tcf1_drops, tcf2_drops, only_shortage=False)
+
+        # Evaluate Today VIN excess alerts across Engine, Nova Aggregates, Cockpit, and Wiring
+        excess_alerts = []
+        
+        # 1. Engine
+        for r_eng in table2_rows:
+            if r_eng.get('Type') == 'row':
+                part_no = r_eng.get('Engine Part No', '')
+                model_name = r_eng.get('Model', '')
+                cl_val = r_eng.get('Clearance After 6:30AM')
+                vin_val = r_eng.get('Today VIN', 0)
+                if isinstance(cl_val, (int, float)) and vin_val > cl_val:
+                    excess_alerts.append({
+                        'Category': 'Engine',
+                        'Model / Part': f"{model_name} ({part_no})" if part_no else model_name,
+                        'Clearance 6:30 AM': cl_val,
+                        'Today VIN': vin_val,
+                        'Excess Qty': vin_val - cl_val
+                    })
+                    
+        # 2. Nova Aggregates
+        nova_df_check = st.session_state.get('nova_materials_df')
+        if nova_df_check is not None and not nova_df_check.empty:
+            vin_nova = today_vin_dict.get("546816111212", 0)
+            for idx, r_n in nova_df_check.iterrows():
+                m_name = r_n.get('Material', 'Aggregate')
+                c_q = int(r_n.get('Clearance Qty', 0))
+                if vin_nova > c_q:
+                    excess_alerts.append({
+                        'Category': 'Nova Aggregate',
+                        'Model / Part': f"Punch EV - {m_name}",
+                        'Clearance 6:30 AM': c_q,
+                        'Today VIN': vin_nova,
+                        'Excess Qty': vin_nova - c_q
+                    })
+                    
+        # 3. Cockpit
+        if df_cpt_all is not None and not df_cpt_all.empty:
+            for idx, r_c in df_cpt_all.iterrows():
+                p_hdr = 'Cockpit Part Number'
+                c_no = r_c.get(p_hdr, '')
+                m_descr = r_c.get('Model', '')
+                cl_c = r_c.get('Clearance After 6:30AM', 0)
+                vin_c = r_c.get('Today VIN', 0)
+                if isinstance(cl_c, (int, float)) and vin_c > cl_c:
+                    excess_alerts.append({
+                        'Category': 'Cockpit',
+                        'Model / Part': f"{c_no} ({m_descr})",
+                        'Clearance 6:30 AM': cl_c,
+                        'Today VIN': vin_c,
+                        'Excess Qty': vin_c - cl_c
+                    })
+                    
+        # 4. Wiring
+        if df_wir_all is not None and not df_wir_all.empty:
+            for idx, r_w in df_wir_all.iterrows():
+                p_hdr = 'Wiring Part Number'
+                w_no = r_w.get(p_hdr, '')
+                m_descr = r_w.get('Model', '')
+                cl_w = r_w.get('Clearance After 6:30AM', 0)
+                vin_w = r_w.get('Today VIN', 0)
+                if isinstance(cl_w, (int, float)) and vin_w > cl_w:
+                    excess_alerts.append({
+                        'Category': 'Wiring',
+                        'Model / Part': f"{w_no} ({m_descr})",
+                        'Clearance 6:30 AM': cl_w,
+                        'Today VIN': vin_w,
+                        'Excess Qty': vin_w - cl_w
+                    })
+
+        # Render alert banner if any excess exists
+        if excess_alerts:
+            header_title = f"🚨 ALERT: TODAY VIN GENERATION EXCEEDS CLEARANCE AFTER 6:30 AM ({len(excess_alerts)} Item{'s' if len(excess_alerts) > 1 else ''})"
+            bg_card = '#2C121A' if is_dark_theme else '#FFF1F2'
+            title_color = '#FDA4AF' if is_dark_theme else '#9F1239'
+            sub_color = '#94A3B8' if is_dark_theme else '#64748B'
+            text_col = '#FAFAFA' if is_dark_theme else '#111827'
+            th_bg = '#4C1D24' if is_dark_theme else '#FFE4E6'
+            border_hdr = '#881337' if is_dark_theme else '#FECDD3'
+            border_td = '#5F1D28' if is_dark_theme else '#FFE4E6'
+            cat_col = '#FB7185' if is_dark_theme else '#E11D48'
+            vin_col = '#F43F5E' if is_dark_theme else '#BE123C'
+            exc_bg = '#881337' if is_dark_theme else '#FECDD3'
+            exc_col = '#FFF' if is_dark_theme else '#9F1239'
+            
+            rows_html = ""
+            for a in excess_alerts:
+                rows_html += (
+                    f"<tr>"
+                    f"<td style='padding: 7px 8px; border: 1px solid {border_td}; font-weight: 600; color: {cat_col};'>{a['Category']}</td>"
+                    f"<td style='padding: 7px 8px; border: 1px solid {border_td};'>{a['Model / Part']}</td>"
+                    f"<td style='padding: 7px 8px; border: 1px solid {border_td}; text-align: center;'>{a['Clearance 6:30 AM']}</td>"
+                    f"<td style='padding: 7px 8px; border: 1px solid {border_td}; text-align: center; font-weight: bold; color: {vin_col};'>{a['Today VIN']}</td>"
+                    f"<td style='padding: 7px 8px; border: 1px solid {border_td}; text-align: center; font-weight: bold; background-color: {exc_bg}; color: {exc_col};'>+{a['Excess Qty']}</td>"
+                    f"</tr>"
+                )
+                
+            alert_box_html = (
+                f"<div style='border: 2px solid #E11D48; border-radius: 10px; background-color: {bg_card}; padding: 14px; margin-top: 15px; margin-bottom: 20px;'>"
+                f"<div style='font-weight: 700; font-size: 15px; color: {title_color}; margin-bottom: 6px;'>{header_title}</div>"
+                f"<div style='font-size: 12px; color: {sub_color}; margin-bottom: 10px;'>The following parts / aggregates have Today VIN quantity exceeding the 6:30 AM Clearance quantity:</div>"
+                f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 12px; color: {text_col};'>"
+                f"<thead>"
+                f"<tr style='background-color: {th_bg}; text-align: left;'>"
+                f"<th style='padding: 8px; border: 1px solid {border_hdr};'>Category</th>"
+                f"<th style='padding: 8px; border: 1px solid {border_hdr};'>Model / Part Description</th>"
+                f"<th style='padding: 8px; border: 1px solid {border_hdr}; text-align: center;'>Clearance After 6:30AM</th>"
+                f"<th style='padding: 8px; border: 1px solid {border_hdr}; text-align: center;'>Today VIN</th>"
+                f"<th style='padding: 8px; border: 1px solid {border_hdr}; text-align: center;'>Excess VIN Qty</th>"
+                f"</tr>"
+                f"</thead>"
+                f"<tbody>{rows_html}</tbody>"
+                f"</table>"
+                f"</div>"
+            )
+            st.markdown(alert_box_html, unsafe_allow_html=True)
+
 
         def render_html_formatted_shortage(df, part_header_name, is_dark):
             if df.empty:
@@ -3496,12 +3615,13 @@ with tcf_tabs[0]:
                 col_letter = openpyxl.utils.get_column_letter(col[0].column)
                 worksheet2.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
-            # Function to format openpyxl sheet for Cockpit / Wiring Shortage
-            def format_openpyxl_shortage_sheet(sheet_name, df_data, part_col_hdr):
+            # Function to format openpyxl sheet for Cockpit / Wiring Shortage or All Parts
+            def format_openpyxl_shortage_sheet(sheet_name, df_data, part_col_hdr, target_writer=None):
+                w_target = target_writer if target_writer is not None else writer
                 if df_data.empty:
                     return
-                df_data.to_excel(writer, index=False, sheet_name=sheet_name)
-                ws = writer.sheets[sheet_name]
+                df_data.to_excel(w_target, index=False, sheet_name=sheet_name)
+                ws = w_target.sheets[sheet_name]
                 ws.row_dimensions[1].height = 28
                 
                 fill_peach = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
@@ -3544,13 +3664,31 @@ with tcf_tabs[0]:
             format_openpyxl_shortage_sheet('Wiring Shortage', df_wir_shortage, 'Wiring Part Number')
                 
         excel_data = excel_buffer.getvalue()
+
+        # Build 2-Sheet Excel workbook for Cockpit & Wiring Report (All Parts: Cockpit, Wiring)
+        all_parts_excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(all_parts_excel_buffer, engine='openpyxl') as writer_all:
+            format_openpyxl_shortage_sheet('Cockpit', df_cpt_all, 'Cockpit Part Number', target_writer=writer_all)
+            format_openpyxl_shortage_sheet('Wiring', df_wir_all, 'Wiring Part Number', target_writer=writer_all)
+        all_parts_excel_data = all_parts_excel_buffer.getvalue()
         
-        st.download_button(
-            label="📥 Export Summary Reports to Excel",
-            data=excel_data,
-            file_name="paint_shop_float_and_requirements_summary.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="export_summary_report"
-        )
+        st.markdown("---")
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            st.download_button(
+                label="📥 Export Summary Reports to Excel",
+                data=excel_data,
+                file_name="paint_shop_float_and_requirements_summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_summary_report"
+            )
+        with col_exp2:
+            st.download_button(
+                label="📥 Download Cockpit & Wiring Report (All Parts - 2 Sheets)",
+                data=all_parts_excel_data,
+                file_name="Cockpit_and_Wiring_Report_All_Parts.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_cockpit_wiring_all_parts"
+            )
     else:
         st.info("Please load Paint Float data in the Control Panel to view the summary report.")
