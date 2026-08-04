@@ -2458,237 +2458,6 @@ with tcf_tabs[4]:
     tot_pbs_h = len(pbs_on_hold_cleaned)
     tot_ps_h = len(paintshop_on_hold_cleaned)
 
-    # --- SECTION 0: SHOP-WISE PLANT PRODUCTION SUMMARY ---
-    if shop_totals is not None or shop_vehicles_df is not None:
-        st.markdown("### 🏭 Shop-Wise Plant Production Summary (Daily Report)")
-        if shop_totals:
-            rep_date = shop_totals.get('Date', shop_totals.get('REPORT DATE', '03/08/2026'))
-            st.caption(f"📅 **Report Date**: {rep_date}")
-            
-            s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5 = st.columns(5)
-            s_kpi1.metric("TCF1 VIN Count", f"{shop_totals.get('TCF VIN', 0)} cabs")
-            s_kpi2.metric("TCF2 VIN Count", f"{shop_totals.get('TCF2 VIN', 0)} cabs")
-            s_kpi3.metric("Total DPT Drops", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
-            s_kpi4.metric("Paint Shop Total", f"{shop_totals.get('PAINT', 0)} cabs")
-            s_kpi5.metric("PBS Buffer Count", f"{shop_totals.get('PBS', 0)} cabs")
-            
-        if shop_vehicles_df is not None and not shop_vehicles_df.empty:
-            st.markdown("#### 🚗 Model-Wise Production Matrix (TCF1 & TCF2 Breakdown)")
-            
-            tcf1_models = ['PUNCH', 'PUNCH Exports', 'PUNCH EV']
-            tcf2_models = ['HARRIER EV', 'SAFARI', 'HARRIER']
-            
-            df1 = shop_vehicles_df[shop_vehicles_df['Model'].isin(tcf1_models)].copy()
-            df2 = shop_vehicles_df[shop_vehicles_df['Model'].isin(tcf2_models)].copy()
-            
-            t1_vin = int(df1['VIN'].sum()) if not df1.empty else 0
-            t1_drop = int(df1['Drop'].sum()) if not df1.empty else 0
-            t1_paint = int(df1['Paint Lifting'].sum()) if not df1.empty else 0
-            t1_t60 = int(df1['T60'].sum()) if not df1.empty else 0
-            t1_t40 = int(df1['T40'].sum()) if not df1.empty else 0
-
-            t2_vin = int(df2['VIN'].sum()) if not df2.empty else 0
-            t2_drop = int(df2['Drop'].sum()) if not df2.empty else 0
-            t2_paint = int(df2['Paint Lifting'].sum()) if not df2.empty else 0
-            t2_t60 = int(df2['T60'].sum()) if not df2.empty else 0
-            t2_t40 = int(df2['T40'].sum()) if not df2.empty else 0
-
-            g_vin = t1_vin + t2_vin
-            g_drop = t1_drop + t2_drop
-            g_paint = t1_paint + t2_paint
-            g_t60 = t1_t60 + t2_t60
-            g_t40 = t1_t40 + t2_t40
-
-            html_table = f"""
-            <style>
-                .matrix-card {{
-                    background: rgba(15, 23, 42, 0.02);
-                    border: 1px solid rgba(226, 232, 240, 0.9);
-                    border-radius: 14px;
-                    padding: 12px;
-                    margin-top: 8px;
-                    margin-bottom: 16px;
-                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
-                }}
-                .matrix-table {{
-                    width: 100%;
-                    border-collapse: separate;
-                    border-spacing: 0;
-                    border-radius: 10px;
-                    overflow: hidden;
-                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                }}
-                .matrix-table th {{
-                    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-                    color: #38bdf8;
-                    padding: 12px 16px;
-                    font-size: 13px;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    letter-spacing: 0.6px;
-                    text-align: center;
-                    border-bottom: 2px solid #0284c7;
-                }}
-                .matrix-table th:first-child {{ text-align: left; padding-left: 20px; }}
-                .matrix-table td {{
-                    padding: 11px 16px;
-                    font-size: 14px;
-                    color: #1e293b;
-                    text-align: center;
-                    border-bottom: 1px solid #e2e8f0;
-                    font-weight: 600;
-                }}
-                .matrix-table td:first-child {{ text-align: left; padding-left: 20px; }}
-                .tr-tcf1 {{ background-color: #ffffff; }}
-                .tr-tcf1:hover {{ background-color: #f0f9ff; }}
-                .tr-tcf2 {{ background-color: #ffffff; }}
-                .tr-tcf2:hover {{ background-color: #f0fdf4; }}
-                .tr-tcf1-tot td {{
-                    background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%) !important;
-                    color: #ffffff !important;
-                    font-weight: 800 !important;
-                    font-size: 14px !important;
-                    border-top: 2px solid #1d4ed8 !important;
-                    border-bottom: 2px solid #1d4ed8 !important;
-                }}
-                .tr-tcf2-tot td {{
-                    background: linear-gradient(90deg, #0f766e 0%, #14b8a6 100%) !important;
-                    color: #ffffff !important;
-                    font-weight: 800 !important;
-                    font-size: 14px !important;
-                    border-top: 2px solid #0d9488 !important;
-                    border-bottom: 2px solid #0d9488 !important;
-                }}
-                .tr-grand-tot td {{
-                    background: linear-gradient(90deg, #312e81 0%, #4f46e5 100%) !important;
-                    color: #fbbf24 !important;
-                    font-weight: 900 !important;
-                    font-size: 15px !important;
-                    letter-spacing: 0.5px;
-                    border-top: 3px solid #6366f1 !important;
-                }}
-                .badge-tcf1 {{
-                    background: #dbeafe;
-                    color: #1e40af;
-                    padding: 3px 8px;
-                    border-radius: 6px;
-                    font-size: 11px;
-                    font-weight: 700;
-                    display: inline-block;
-                }}
-                .badge-tcf2 {{
-                    background: #ccfbf1;
-                    color: #0f766e;
-                    padding: 3px 8px;
-                    border-radius: 6px;
-                    font-size: 11px;
-                    font-weight: 700;
-                    display: inline-block;
-                }}
-            </style>
-            <div class="matrix-card">
-            <table class="matrix-table">
-                <thead>
-                    <tr>
-                        <th>Model</th>
-                        <th>VIN</th>
-                        <th>Drop</th>
-                        <th>Paint Lifting</th>
-                        <th>T60</th>
-                        <th>T40</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            
-            # TCF1 Rows
-            if not df1.empty:
-                for _, r in df1.iterrows():
-                    html_table += f"""
-                    <tr class="tr-tcf1">
-                        <td><span class="badge-tcf1">TCF1</span> &nbsp; <b>{r['Model']}</b></td>
-                        <td>{r['VIN']}</td>
-                        <td>{r['Drop']}</td>
-                        <td>{r['Paint Lifting']}</td>
-                        <td>{r['T60']}</td>
-                        <td>{r['T40']}</td>
-                    </tr>
-                    """
-            # TCF1 Total
-            html_table += f"""
-            <tr class="tr-tcf1-tot">
-                <td>🔹 TOTAL TCF1</td>
-                <td>{t1_vin}</td>
-                <td>{t1_drop}</td>
-                <td>{t1_paint}</td>
-                <td>{t1_t60}</td>
-                <td>{t1_t40}</td>
-            </tr>
-            """
-
-            # TCF2 Rows
-            if not df2.empty:
-                for _, r in df2.iterrows():
-                    html_table += f"""
-                    <tr class="tr-tcf2">
-                        <td><span class="badge-tcf2">TCF2</span> &nbsp; <b>{r['Model']}</b></td>
-                        <td>{r['VIN']}</td>
-                        <td>{r['Drop']}</td>
-                        <td>{r['Paint Lifting']}</td>
-                        <td>{r['T60']}</td>
-                        <td>{r['T40']}</td>
-                    </tr>
-                    """
-            # TCF2 Total
-            html_table += f"""
-            <tr class="tr-tcf2-tot">
-                <td>🔸 TOTAL TCF2</td>
-                <td>{t2_vin}</td>
-                <td>{t2_drop}</td>
-                <td>{t2_paint}</td>
-                <td>{t2_t60}</td>
-                <td>{t2_t40}</td>
-            </tr>
-            """
-
-            # Grand Total
-            html_table += f"""
-            <tr class="tr-grand-tot">
-                <td>🏆 GRAND TOTAL PLANT</td>
-                <td>{g_vin}</td>
-                <td>{g_drop}</td>
-                <td>{g_paint}</td>
-                <td>{g_t60}</td>
-                <td>{g_t40}</td>
-            </tr>
-            </tbody>
-            </table>
-            </div>
-            """
-            st.markdown(html_table, unsafe_allow_html=True)
-            
-            # Excel export button for Model Wise Matrix
-            df1_sub = df1.copy()
-            t1_row = pd.DataFrame([{'Model': 'TOTAL TCF1', 'VIN': t1_vin, 'Drop': t1_drop, 'Paint Lifting': t1_paint, 'T60': t1_t60, 'T40': t1_t40}])
-            df2_sub = df2.copy()
-            t2_row = pd.DataFrame([{'Model': 'TOTAL TCF2', 'VIN': t2_vin, 'Drop': t2_drop, 'Paint Lifting': t2_paint, 'T60': t2_t60, 'T40': t2_t40}])
-            gt_row = pd.DataFrame([{'Model': 'GRAND TOTAL PLANT', 'VIN': g_vin, 'Drop': g_drop, 'Paint Lifting': g_paint, 'T60': g_t60, 'T40': g_t40}])
-            
-            export_matrix_df = pd.concat([df1_sub, t1_row, df2_sub, t2_row, gt_row], ignore_index=True)
-            
-            buf_matrix = io.BytesIO()
-            with pd.ExcelWriter(buf_matrix, engine='openpyxl') as writer:
-                export_matrix_df.to_excel(writer, index=False, sheet_name='Production Matrix')
-            st.download_button(
-                label="📥 Export Model-Wise Production Matrix to Excel",
-                data=buf_matrix.getvalue(),
-                file_name="Model_Wise_Production_Matrix.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="export_prod_matrix_btn"
-            )
-            
-        st.markdown("---")
-
     metric_cols = st.columns(3)
     metric_cols[0].metric("PBS Buffer Holds", f"{tot_pbs_h} cabs", help="Cabs in PBS Buffer on Quality hold")
     metric_cols[1].metric("Paint Shop Holds", f"{tot_ps_h} cabs", help="Cabs in Paint Shop (PTCED to before PBS Lift) on Quality hold")
@@ -3213,6 +2982,190 @@ TCF2: {tcf2_r_cabs:02d} cabs+ {tcf2_hold_text}"""
 
 # ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
 with tcf_tabs[0]:
+    # --- SECTION 0: SHOP-WISE PLANT PRODUCTION SUMMARY ---
+    if shop_totals is not None or shop_vehicles_df is not None:
+        st.markdown("### 🏭 Shop-Wise Plant Production Summary (Daily Report)")
+        if shop_totals:
+            rep_date = shop_totals.get('Date', shop_totals.get('REPORT DATE', '03/08/2026'))
+            st.caption(f"📅 **Report Date**: {rep_date}")
+            
+            s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5 = st.columns(5)
+            s_kpi1.metric("TCF1 VIN Count", f"{shop_totals.get('TCF VIN', 0)} cabs")
+            s_kpi2.metric("TCF2 VIN Count", f"{shop_totals.get('TCF2 VIN', 0)} cabs")
+            s_kpi3.metric("Total DPT Drops", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
+            s_kpi4.metric("Paint Shop Total", f"{shop_totals.get('PAINT', 0)} cabs")
+            s_kpi5.metric("PBS Buffer Count", f"{shop_totals.get('PBS', 0)} cabs")
+            
+        if shop_vehicles_df is not None and not shop_vehicles_df.empty:
+            st.markdown("#### 🚗 Model-Wise Production Matrix (TCF1 & TCF2 Breakdown)")
+            
+            tcf1_models = ['PUNCH', 'PUNCH Exports', 'PUNCH EV']
+            tcf2_models = ['HARRIER EV', 'SAFARI', 'HARRIER']
+            
+            df1 = shop_vehicles_df[shop_vehicles_df['Model'].isin(tcf1_models)].copy()
+            df2 = shop_vehicles_df[shop_vehicles_df['Model'].isin(tcf2_models)].copy()
+            
+            t1_vin = int(df1['VIN'].sum()) if not df1.empty else 0
+            t1_drop = int(df1['Drop'].sum()) if not df1.empty else 0
+            t1_paint = int(df1['Paint Lifting'].sum()) if not df1.empty else 0
+            t1_t60 = int(df1['T60'].sum()) if not df1.empty else 0
+            t1_t40 = int(df1['T40'].sum()) if not df1.empty else 0
+
+            t2_vin = int(df2['VIN'].sum()) if not df2.empty else 0
+            t2_drop = int(df2['Drop'].sum()) if not df2.empty else 0
+            t2_paint = int(df2['Paint Lifting'].sum()) if not df2.empty else 0
+            t2_t60 = int(df2['T60'].sum()) if not df2.empty else 0
+            t2_t40 = int(df2['T40'].sum()) if not df2.empty else 0
+
+            g_vin = t1_vin + t2_vin
+            g_drop = t1_drop + t2_drop
+            g_paint = t1_paint + t2_paint
+            g_t60 = t1_t60 + t2_t60
+            g_t40 = t1_t40 + t2_t40
+
+            html_table = f"""<style>
+.matrix-card {{
+    background: rgba(15, 23, 42, 0.02);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 14px;
+    padding: 12px;
+    margin-top: 8px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+}}
+.matrix-table {{
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}}
+.matrix-table th {{
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #38bdf8;
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    text-align: center;
+    border-bottom: 2px solid #0284c7;
+}}
+.matrix-table th:first-child {{ text-align: left; padding-left: 20px; }}
+.matrix-table td {{
+    padding: 11px 16px;
+    font-size: 14px;
+    color: #1e293b;
+    text-align: center;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+}}
+.matrix-table td:first-child {{ text-align: left; padding-left: 20px; }}
+.tr-tcf1 {{ background-color: #ffffff; }}
+.tr-tcf1:hover {{ background-color: #f0f9ff; }}
+.tr-tcf2 {{ background-color: #ffffff; }}
+.tr-tcf2:hover {{ background-color: #f0fdf4; }}
+.tr-tcf1-tot td {{
+    background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%) !important;
+    color: #ffffff !important;
+    font-weight: 800 !important;
+    font-size: 14px !important;
+    border-top: 2px solid #1d4ed8 !important;
+    border-bottom: 2px solid #1d4ed8 !important;
+}}
+.tr-tcf2-tot td {{
+    background: linear-gradient(90deg, #0f766e 0%, #14b8a6 100%) !important;
+    color: #ffffff !important;
+    font-weight: 800 !important;
+    font-size: 14px !important;
+    border-top: 2px solid #0d9488 !important;
+    border-bottom: 2px solid #0d9488 !important;
+}}
+.tr-grand-tot td {{
+    background: linear-gradient(90deg, #312e81 0%, #4f46e5 100%) !important;
+    color: #fbbf24 !important;
+    font-weight: 900 !important;
+    font-size: 15px !important;
+    letter-spacing: 0.5px;
+    border-top: 3px solid #6366f1 !important;
+}}
+.badge-tcf1 {{
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-block;
+}}
+.badge-tcf2 {{
+    background: #ccfbf1;
+    color: #0f766e;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-block;
+}}
+</style>
+<div class="matrix-card">
+<table class="matrix-table">
+<thead>
+<tr>
+<th>Model</th>
+<th>VIN</th>
+<th>Drop</th>
+<th>Paint Lifting</th>
+<th>T60</th>
+<th>T40</th>
+</tr>
+</thead>
+<tbody>"""
+            
+            # TCF1 Rows
+            if not df1.empty:
+                for _, r in df1.iterrows():
+                    html_table += f"""<tr class="tr-tcf1"><td><span class="badge-tcf1">TCF1</span> &nbsp; <b>{r['Model']}</b></td><td>{r['VIN']}</td><td>{r['Drop']}</td><td>{r['Paint Lifting']}</td><td>{r['T60']}</td><td>{r['T40']}</td></tr>"""
+            
+            # TCF1 Total
+            html_table += f"""<tr class="tr-tcf1-tot"><td>🔹 TOTAL TCF1</td><td>{t1_vin}</td><td>{t1_drop}</td><td>{t1_paint}</td><td>{t1_t60}</td><td>{t1_t40}</td></tr>"""
+
+            # TCF2 Rows
+            if not df2.empty:
+                for _, r in df2.iterrows():
+                    html_table += f"""<tr class="tr-tcf2"><td><span class="badge-tcf2">TCF2</span> &nbsp; <b>{r['Model']}</b></td><td>{r['VIN']}</td><td>{r['Drop']}</td><td>{r['Paint Lifting']}</td><td>{r['T60']}</td><td>{r['T40']}</td></tr>"""
+            
+            # TCF2 Total
+            html_table += f"""<tr class="tr-tcf2-tot"><td>🔸 TOTAL TCF2</td><td>{t2_vin}</td><td>{t2_drop}</td><td>{t2_paint}</td><td>{t2_t60}</td><td>{t2_t40}</td></tr>"""
+
+            # Grand Total
+            html_table += f"""<tr class="tr-grand-tot"><td>🏆 GRAND TOTAL PLANT</td><td>{g_vin}</td><td>{g_drop}</td><td>{g_paint}</td><td>{g_t60}</td><td>{g_t40}</td></tr></tbody></table></div>"""
+            
+            st.markdown(html_table, unsafe_allow_html=True)
+            
+            # Excel export button for Model Wise Matrix
+            df1_sub = df1.copy()
+            t1_row = pd.DataFrame([{'Model': 'TOTAL TCF1', 'VIN': t1_vin, 'Drop': t1_drop, 'Paint Lifting': t1_paint, 'T60': t1_t60, 'T40': t1_t40}])
+            df2_sub = df2.copy()
+            t2_row = pd.DataFrame([{'Model': 'TOTAL TCF2', 'VIN': t2_vin, 'Drop': t2_drop, 'Paint Lifting': t2_paint, 'T60': t2_t60, 'T40': t2_t40}])
+            gt_row = pd.DataFrame([{'Model': 'GRAND TOTAL PLANT', 'VIN': g_vin, 'Drop': g_drop, 'Paint Lifting': g_paint, 'T60': g_t60, 'T40': g_t40}])
+            
+            export_matrix_df = pd.concat([df1_sub, t1_row, df2_sub, t2_row, gt_row], ignore_index=True)
+            
+            buf_matrix = io.BytesIO()
+            with pd.ExcelWriter(buf_matrix, engine='openpyxl') as writer:
+                export_matrix_df.to_excel(writer, index=False, sheet_name='Production Matrix')
+            st.download_button(
+                label="📥 Export Model-Wise Production Matrix to Excel",
+                data=buf_matrix.getvalue(),
+                file_name="Model_Wise_Production_Matrix.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_prod_matrix_btn"
+            )
+            
+        st.markdown("---")
+
     st.markdown("### 📊 Paint Shop Float Summary")
     st.markdown("""
         This report displays the paint shop buffer status by stage and model, matching the exact layout of the paint shop tracker sheet.
