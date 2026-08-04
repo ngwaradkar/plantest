@@ -281,6 +281,26 @@ st.markdown(f"""
         border-color: var(--accent-color) !important;
     }}
     
+    /* Multiselect Tag Pill Fix */
+    span[data-baseweb="tag"] {{
+        background-color: #2563eb !important;
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+    }}
+    span[data-baseweb="tag"] div, span[data-baseweb="tag"] span, span[data-baseweb="tag"] a {{
+        background-color: transparent !important;
+        background: transparent !important;
+        color: #ffffff !important;
+        border-radius: 0px !important;
+    }}
+    span[data-baseweb="tag"] svg {{
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }}
+    
     /* Button premium styling with micro-interaction hover/active states */
     button[kind="primary"] {{
         background-color: var(--accent-color) !important;
@@ -444,6 +464,21 @@ if 'nova_materials_df' not in st.session_state:
         st.session_state.nova_materials_df = db_nova_df
     else:
         st.session_state.nova_materials_df = pd.DataFrame(nova_default_data)
+
+# Load Model-Wise Shortages from DB or defaults
+if 'model_shortages_df' not in st.session_state:
+    db_ms_df = None
+    try:
+        db_ms_df = dl.load_model_shortages_from_db()
+    except Exception:
+        pass
+    if db_ms_df is not None and not db_ms_df.empty:
+        if 'Trims' not in db_ms_df.columns:
+            db_ms_df['Trims'] = 'All Trims'
+        st.session_state.model_shortages_df = db_ms_df
+    else:
+        st.session_state.model_shortages_df = pd.DataFrame(columns=['Model', 'Trims', 'Part Name', 'Clearance Qty'])
+
 # Load Telegram bot credentials from DB metadata or pre-populated defaults
 DEFAULT_TELEGRAM_TOKEN = "8817304754:AAGT6lfz17PE2BgSAMd10h6HIrHUFfU8pGk"
 DEFAULT_TELEGRAM_CHAT_ID = "680536291"
@@ -463,6 +498,155 @@ if 'telegram_chat_id' not in st.session_state:
         st.session_state.telegram_chat_id = DEFAULT_TELEGRAM_CHAT_ID
 
 # Auto reset at 6:30 AM is completely disabled. Data reset is only performed when manually triggered by planner via Control Center.
+
+def get_demand_qty_for_model_trims(model_name, trims_str, tcf1_drops, tcf2_drops):
+    """Calculates demand (VIN generation / DPT plan) for a given model and trim filter."""
+    vgl_df = None
+    if model_name in ['PUNCH', 'PUNCH.EV', 'ALTROZ']:
+        vgl_df = tcf1_drops
+    elif model_name in ['HARRIER / SAFARI', 'HARRIER', 'SAFARI', 'HARRIER.EV']:
+        vgl_df = tcf2_drops
+
+    if vgl_df is None or vgl_df.empty:
+        dfs = [df for df in [tcf1_drops, tcf2_drops] if df is not None and not df.empty]
+        vgl_df = pd.concat(dfs, ignore_index=True) if dfs else None
+
+    if vgl_df is None or vgl_df.empty:
+        return 0
+
+    sub = vgl_df.copy()
+    model_col = 'ProductFamily' if 'ProductFamily' in sub.columns else ('Model_Family' if 'Model_Family' in sub.columns else ('Model' if 'Model' in sub.columns else None))
+    
+    if model_col:
+        m_str = str(model_name).upper()
+        if 'HARRIER / SAFARI' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['HARRIER', 'SAFARI', 'GRAVITAS', 'Q5'])]
+        elif 'HARRIER.EV' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['HARRIER.EV', 'ETURNA'])]
+        elif 'PUNCH.EV' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['PUNCH.EV', 'NOVA'])]
+        elif 'PUNCH' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['PUNCH', 'HORNBILL'])]
+        else:
+            sub = sub[sub[model_col].astype(str).str.upper().str.contains(m_str, na=False)]
+
+    if trims_str and "All Trims" not in str(trims_str) and not sub.empty:
+        trims_list = [t.strip().upper() for t in str(trims_str).split(',') if t.strip()]
+        desc_col = 'SALES DESC' if 'SALES DESC' in sub.columns else ('SALES DESCRIPTION' if 'SALES DESCRIPTION' in sub.columns else ('MODEL' if 'MODEL' in sub.columns else None))
+        if desc_col and trims_list:
+            patterns = [re.escape(t) for t in trims_list]
+            regex_pat = '|'.join(patterns)
+            sub = sub[sub[desc_col].astype(str).str.upper().str.contains(regex_pat, na=False)]
+
+    if 'VIN_Count' in sub.columns and pd.to_numeric(sub['VIN_Count'], errors='coerce').fillna(0).sum() > 0:
+        return int(pd.to_numeric(sub['VIN_Count'], errors='coerce').fillna(0).sum())
+    
+    for col in ['TCF/-VIN', 'TCF2-VIN', 'TOTAL']:
+        if col in sub.columns and pd.to_numeric(sub[col], errors='coerce').fillna(0).sum() > 0:
+            return int(pd.to_numeric(sub[col], errors='coerce').fillna(0).sum())
+
+    for col in ['TCF/-Plan', 'TCF2-Plan', 'Plan_Count']:
+        if col in sub.columns and pd.to_numeric(sub[col], errors='coerce').fillna(0).sum() > 0:
+            return int(pd.to_numeric(sub[col], errors='coerce').fillna(0).sum())
+
+    return len(sub)
+
+def get_backflushed_vin_count_for_model_trims(model_name, trims_str, tcf1_drops, tcf2_drops):
+    """Calculates backflushed VIN drops generated today for a given model and trim filter."""
+    vgl_df = None
+    if model_name in ['PUNCH', 'PUNCH.EV', 'ALTROZ']:
+        vgl_df = tcf1_drops
+    elif model_name in ['HARRIER / SAFARI', 'HARRIER', 'SAFARI', 'HARRIER.EV']:
+        vgl_df = tcf2_drops
+
+    if vgl_df is None or vgl_df.empty:
+        dfs = [df for df in [tcf1_drops, tcf2_drops] if df is not None and not df.empty]
+        vgl_df = pd.concat(dfs, ignore_index=True) if dfs else None
+
+    if vgl_df is None or vgl_df.empty:
+        return 0
+
+    sub = vgl_df.copy()
+    model_col = 'ProductFamily' if 'ProductFamily' in sub.columns else ('Model_Family' if 'Model_Family' in sub.columns else ('Model' if 'Model' in sub.columns else None))
+    
+    if model_col:
+        m_str = str(model_name).upper()
+        if 'HARRIER / SAFARI' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['HARRIER', 'SAFARI', 'GRAVITAS', 'Q5'])]
+        elif 'HARRIER.EV' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['HARRIER.EV', 'ETURNA'])]
+        elif 'PUNCH.EV' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['PUNCH.EV', 'NOVA'])]
+        elif 'PUNCH' in m_str:
+            sub = sub[sub[model_col].astype(str).str.upper().isin(['PUNCH', 'HORNBILL'])]
+        else:
+            sub = sub[sub[model_col].astype(str).str.upper().str.contains(m_str, na=False)]
+
+    if trims_str and "All Trims" not in str(trims_str) and not sub.empty:
+        trims_list = [t.strip().upper() for t in str(trims_str).split(',') if t.strip()]
+        desc_col = 'SALES DESC' if 'SALES DESC' in sub.columns else ('SALES DESCRIPTION' if 'SALES DESCRIPTION' in sub.columns else ('MODEL' if 'MODEL' in sub.columns else None))
+        if desc_col and trims_list:
+            patterns = [re.escape(t) for t in trims_list]
+            regex_pat = '|'.join(patterns)
+            sub = sub[sub[desc_col].astype(str).str.upper().str.contains(regex_pat, na=False)]
+
+    for col in ['VIN_Count', 'TCF/-VIN', 'TCF2-VIN', 'TOTAL']:
+        if col in sub.columns and pd.to_numeric(sub[col], errors='coerce').fillna(0).sum() > 0:
+            return int(pd.to_numeric(sub[col], errors='coerce').fillna(0).sum())
+
+    return 0
+
+def evaluate_all_clearance_shortage_alerts(model_shortages_df, nova_materials_df, engine_df, tcf1_drops, tcf2_drops):
+    """Evaluates all starting clearance stocks against VIN/DPT demand and returns active shortage alerts."""
+    alerts = []
+    
+    # 1. Model-Wise Shortages
+    if model_shortages_df is not None and not model_shortages_df.empty:
+        for idx, row in model_shortages_df.iterrows():
+            m_name = str(row['Model']).strip()
+            m_trims = str(row.get('Trims', 'All Trims')).strip()
+            p_name = str(row['Part Name']).strip()
+            c_qty = int(row['Clearance Qty'])
+            
+            vins_today = get_backflushed_vin_count_for_model_trims(m_name, m_trims, tcf1_drops, tcf2_drops)
+            true_stock = max(0, c_qty - vins_today)
+            d_qty = get_demand_qty_for_model_trims(m_name, m_trims, tcf1_drops, tcf2_drops)
+            
+            if true_stock <= 0 or c_qty < d_qty:
+                deficit = max(d_qty - c_qty, vins_today - c_qty, 0)
+                alerts.append({
+                    'Category': 'Model-Wise Shortage',
+                    'Model': m_name,
+                    'Trims': m_trims,
+                    'Part Name': p_name,
+                    'Clearance Qty': c_qty,
+                    'VINs Today': vins_today,
+                    'True Stock': true_stock,
+                    'Demand Qty': d_qty,
+                    'Shortage Qty': deficit,
+                    'Message': f"{m_name} [{m_trims}] - {p_name}: Clearance {c_qty} - Produced VINs {vins_today} = {true_stock} Available Stock (Deficit: -{deficit} units)"
+                })
+
+    # 2. Punch EV (Nova) Materials
+    if nova_materials_df is not None and not nova_materials_df.empty:
+        nova_vin_qty = get_demand_qty_for_model_trims("PUNCH.EV", "All Trims", tcf1_drops, tcf2_drops)
+        for idx, row in nova_materials_df.iterrows():
+            m_name = str(row['Material']).strip().replace('Craddle', 'Cradle')
+            c_qty = int(row['Clearance Qty'])
+            if c_qty < nova_vin_qty:
+                deficit = nova_vin_qty - c_qty
+                alerts.append({
+                    'Category': 'Punch EV Material',
+                    'Model': 'PUNCH.EV',
+                    'Trims': 'All Trims',
+                    'Part Name': m_name,
+                    'Clearance Qty': c_qty,
+                    'Demand Qty': nova_vin_qty,
+                    'Shortage Qty': deficit,
+                    'Message': f"PUNCH.EV - {m_name}: Clearance Stock {c_qty} vs VIN Demand {nova_vin_qty} (Shortage: -{deficit} units)"
+                })
+                
+    return alerts
 
 # Load active directory selection from database metadata
 db_data_source = 'Root Directory (Production)'
@@ -680,12 +864,142 @@ with config_expander:
                 for mat in materials_list:
                     updated_nova_list.append({"Model": "Nova", "Material": mat, "Clearance Qty": new_nova_input_vals[mat]})
                 st.session_state.nova_materials_df = pd.DataFrame(updated_nova_list)
-                st.session_state.run_report = False
                 try:
                     dl.save_nova_stocks_to_db(st.session_state.nova_materials_df)
                 except Exception:
                     pass
                 st.toast("💾 Punch EV starting clearance stocks saved successfully!", icon="💾")
+                st.session_state.run_report = True
+                st.rerun()
+
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("#### 📦 Model Wise Shortage")
+            st.markdown("<small style='color:#8896AB'>Configure shortages by model, trim, part name, and clearance quantity.</small>", unsafe_allow_html=True)
+            
+            # Trim Options Mapping per Model
+            trim_options_map = {
+                "HARRIER / SAFARI": ["ACC", "ADV", "PUR", "SMT", "FRL", "FRLR", "TGDI", "CNG"],
+                "HARRIER.EV": ["ADV", "EMP", "FEA", "FEA+"],
+                "PUNCH": ["SMART", "PURE", "PURE +", "PURE + S", "ADVT", "ADVT S", "ACCOMP", "ACCOMP + S", "CREATIVE / LUX", "CNG", "TGDI"],
+                "PUNCH.EV": ["SMT", "SMT+", "ADV", "EMP", "EMP+ S"]
+            }
+
+            def pause_calculation_on_edit():
+                st.session_state.run_report = False
+
+            col_m, col_t = st.columns([1.2, 1.8])
+            with col_m:
+                selected_ms_model = st.selectbox(
+                    "Select Model",
+                    options=list(trim_options_map.keys()),
+                    key="ms_model_select",
+                    on_change=pause_calculation_on_edit
+                )
+            with col_t:
+                available_trims = trim_options_map.get(selected_ms_model, [])
+                selected_trims = st.multiselect(
+                    "Select Trim(s)",
+                    options=available_trims,
+                    default=[],
+                    placeholder="Select trim(s)... (leave empty for All Trims)",
+                    key=f"ms_trim_select_{selected_ms_model}",
+                    on_change=pause_calculation_on_edit
+                )
+
+            col_p, col_q = st.columns([2.0, 1.0])
+            with col_p:
+                input_ms_part_name = st.text_input(
+                    "Part Name",
+                    placeholder="Enter part name manually...",
+                    key="ms_part_input",
+                    on_change=pause_calculation_on_edit
+                )
+            with col_q:
+                input_ms_clearance_qty = st.number_input(
+                    "Clearance Qty",
+                    min_value=0,
+                    value=0,
+                    step=1,
+                    key="ms_qty_input",
+                    on_change=pause_calculation_on_edit
+                )
+            
+            st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+            if st.button("➕ Add Shortage Item", type="primary", use_container_width=True, key="add_ms_btn"):
+                if not input_ms_part_name.strip():
+                    st.error("Please enter a Part Name before adding.")
+                else:
+                    trims_str = ", ".join(selected_trims) if selected_trims else "All Trims"
+                    new_ms_entry = {
+                        "Model": selected_ms_model,
+                        "Trims": trims_str,
+                        "Part Name": input_ms_part_name.strip(),
+                        "Clearance Qty": int(input_ms_clearance_qty)
+                    }
+                    if 'model_shortages_df' not in st.session_state or st.session_state.model_shortages_df is None or st.session_state.model_shortages_df.empty:
+                        st.session_state.model_shortages_df = pd.DataFrame([new_ms_entry])
+                    else:
+                        df_ms = st.session_state.model_shortages_df.copy()
+                        mask = (df_ms['Model'] == selected_ms_model) & (df_ms['Trims'] == trims_str) & (df_ms['Part Name'].str.lower() == input_ms_part_name.strip().lower())
+                        if mask.any():
+                            df_ms.loc[mask, 'Clearance Qty'] = int(input_ms_clearance_qty)
+                        else:
+                            df_ms = pd.concat([df_ms, pd.DataFrame([new_ms_entry])], ignore_index=True)
+                        st.session_state.model_shortages_df = df_ms
+                    
+                    try:
+                        dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
+                    except Exception:
+                        pass
+                    st.toast(f"✅ Added {input_ms_part_name.strip()} for {selected_ms_model} [{trims_str}] (Qty: {input_ms_clearance_qty})", icon="✅")
+                    st.rerun()
+
+            # Display existing model-wise shortages table if present
+            if 'model_shortages_df' in st.session_state and st.session_state.model_shortages_df is not None and not st.session_state.model_shortages_df.empty:
+                st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+                st.markdown("##### Current Model-Wise Shortages")
+                
+                ms_disp_df = st.session_state.model_shortages_df.copy()
+                
+                for idx_ms, row_ms in ms_disp_df.iterrows():
+                    c1, c2, c3, c4, c5, c6 = st.columns([1.1, 1.1, 1.4, 0.7, 1.5, 0.4])
+                    with c1:
+                        st.markdown(f"**{row_ms['Model']}**")
+                    with c2:
+                        st.markdown(f"`{row_ms.get('Trims', 'All Trims')}`")
+                    with c3:
+                        st.markdown(f"{row_ms['Part Name']}")
+                    with c4:
+                        st.markdown(f"Clearance: `{row_ms['Clearance Qty']}`")
+                    with c5:
+                        c_qty = int(row_ms['Clearance Qty'])
+                        tcf1_tmp = locals().get('tcf1_drops', None)
+                        tcf2_tmp = locals().get('tcf2_drops', None)
+                        vins_today = get_backflushed_vin_count_for_model_trims(row_ms['Model'], row_ms.get('Trims', 'All Trims'), tcf1_tmp, tcf2_tmp)
+                        true_buf = max(0, c_qty - vins_today)
+                        if true_buf <= 0:
+                            st.markdown(f"<span style='background:#FEE2E2; color:#DC2626; border: 1px solid #FCA5A5; padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;'>🚨 SHORTAGE: 0 Buffer (VIN Gen: {vins_today})</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<span style='background:#DCFCE7; color:#166534; border: 1px solid #86EFAC; padding:3px 8px; border-radius:6px; font-weight:600; font-size:11px;'>🟢 OK: {true_buf} Buffer (VIN Gen: {vins_today})</span>", unsafe_allow_html=True)
+                    with c6:
+                        if st.button("🗑️", key=f"del_ms_{idx_ms}", help="Delete item"):
+                            st.session_state.model_shortages_df = st.session_state.model_shortages_df.drop(idx_ms).reset_index(drop=True)
+                            try:
+                                dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
+                            except Exception:
+                                pass
+                            st.toast("Item removed", icon="🗑️")
+                            st.rerun()
+
+                if st.button("🗑️ Clear All Model Shortages", key="clear_all_ms_btn", use_container_width=True):
+                    st.session_state.model_shortages_df = pd.DataFrame(columns=['Model', 'Trims', 'Part Name', 'Clearance Qty'])
+                    try:
+                        dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
+                    except Exception:
+                        pass
+                    st.toast("All model shortages cleared", icon="🗑️")
+                    st.rerun()
             
     with col_engine:
         with st.container(border=True):
@@ -754,12 +1068,13 @@ with config_expander:
                     p_no = str(r_eng['Engine Part No']).strip()
                     if p_no in new_eng_input_vals:
                         st.session_state.engine_df.at[idx, 'Clearance After 6:30AM'] = new_eng_input_vals[p_no]
-                st.session_state.run_report = False
                 try:
                     dl.save_engine_stocks_to_db(st.session_state.engine_df)
                 except Exception:
                     pass
                 st.toast("💾 ICE Engine starting clearance stocks saved successfully!", icon="💾")
+                st.session_state.run_report = True
+                st.rerun()
 
         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
         with st.container(border=True):
@@ -786,9 +1101,11 @@ with config_expander:
             if st.button("🔄 Reset Clearances to 0 (Shift Start)", type="primary", use_container_width=True, key="reset_clearances_btn"):
                 st.session_state.engine_df = pd.DataFrame(engine_default_data)
                 st.session_state.nova_materials_df = pd.DataFrame(nova_default_data)
+                st.session_state.model_shortages_df = pd.DataFrame(columns=['Model', 'Part Name', 'Clearance Qty'])
                 try:
                     dl.save_engine_stocks_to_db(st.session_state.engine_df)
                     dl.save_nova_stocks_to_db(st.session_state.nova_materials_df)
+                    dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
                 except Exception:
                     pass
                 now_time = get_ist_now()
@@ -973,9 +1290,36 @@ try:
                 start_qty = int(r_nova['Clearance Qty'])
                 true_nova_dict[mat_name] = start_qty - nova_backflushed
 
+        # Build Model-Wise Shortage stock list (Starting Clearance minus Backflushed VIN Drops today)
+        model_shortages_list = []
+        if 'model_shortages_df' in st.session_state and st.session_state.model_shortages_df is not None and not st.session_state.model_shortages_df.empty:
+            for idx, r_ms in st.session_state.model_shortages_df.iterrows():
+                m_mod = str(r_ms['Model']).strip()
+                m_trm = str(r_ms.get('Trims', 'All Trims')).strip()
+                m_part = str(r_ms['Part Name']).strip()
+                start_qty = int(r_ms['Clearance Qty'])
+                
+                vins_today = get_backflushed_vin_count_for_model_trims(m_mod, m_trm, tcf1_drops, tcf2_drops)
+                true_stock = max(0, start_qty - vins_today)
+                
+                model_shortages_list.append({
+                    'Model': m_mod,
+                    'Trims': m_trm,
+                    'Part Name': m_part,
+                    'Stock': true_stock,
+                    'Clearance Qty': start_qty,
+                    'Backflushed VINs': vins_today
+                })
+
         # Run allocation engine for PBS cabs only (for TCF1 & TCF2 tabs)
-        tcf1_alloc, tcf1_final_stocks = ae.run_allocation(tcf1_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1, true_nova=true_nova_dict)
-        tcf2_alloc, tcf2_final_stocks = ae.run_allocation(tcf2_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2)
+        tcf1_alloc, tcf1_final_stocks = ae.run_allocation(
+            tcf1_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1,
+            true_nova=true_nova_dict, model_shortages=model_shortages_list
+        )
+        tcf2_alloc, tcf2_final_stocks = ae.run_allocation(
+            tcf2_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2,
+            model_shortages=model_shortages_list
+        )
         
         tcf1_alloc_df = pd.DataFrame(tcf1_alloc)
         tcf2_alloc_df = pd.DataFrame(tcf2_alloc)
@@ -992,11 +1336,45 @@ try:
             tcf1_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
             tcf2_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
 
-        tcf1_total_alloc, _ = ae.run_allocation(tcf1_total_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1, true_nova=true_nova_dict)
-        tcf2_total_alloc, _ = ae.run_allocation(tcf2_total_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2)
+        tcf1_total_alloc, _ = ae.run_allocation(
+            tcf1_total_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1,
+            true_nova=true_nova_dict, model_shortages=model_shortages_list
+        )
+        tcf2_total_alloc, _ = ae.run_allocation(
+            tcf2_total_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2,
+            model_shortages=model_shortages_list
+        )
         
         tcf1_total_alloc_df = pd.DataFrame(tcf1_total_alloc)
         tcf2_total_alloc_df = pd.DataFrame(tcf2_total_alloc)
+        
+        # Load All models.xlsx catalog for VC -> Trim mapping
+        all_models_path = os.path.join(active_dir, "All models.xlsx")
+        if not os.path.exists(all_models_path):
+            all_models_path = os.path.join(workspace_dir, "TEST", "All models.xlsx")
+        vc_to_desc, vc_to_trim = dl.load_all_models_catalog(all_models_path)
+
+        def get_row_trim(row):
+            s_desc = row.get('SALES DESCRIPTION', row.get('SALES DESC', None))
+            m_name = row.get('Model', row.get('PRODUCT', ''))
+            if s_desc and pd.notna(s_desc) and str(s_desc).strip() not in ['', 'nan']:
+                return dl.extract_trim_from_sales_desc(s_desc, m_name)
+            v_code = str(row.get('VEHICLE CODE', row.get('VC', ''))).strip()
+            if v_code in vc_to_trim:
+                return vc_to_trim[v_code]
+            if v_code[:9] in vc_to_trim:
+                return vc_to_trim[v_code[:9]]
+            return "—"
+
+        if not tcf1_alloc_df.empty:
+            tcf1_alloc_df['Trim'] = tcf1_alloc_df.apply(get_row_trim, axis=1)
+        else:
+            tcf1_alloc_df['Trim'] = pd.Series(dtype='object')
+
+        if not tcf2_alloc_df.empty:
+            tcf2_alloc_df['Trim'] = tcf2_alloc_df.apply(get_row_trim, axis=1)
+        else:
+            tcf2_alloc_df['Trim'] = pd.Series(dtype='object')
         
         # Add Model column by mapping Engine Part No to Model & Line
         if 'engine_df' in st.session_state and not st.session_state.engine_df.empty:
@@ -1440,6 +1818,28 @@ def render_total_float_details_view(float_df, default_line="All"):
         key=f"export_float_details_{default_line}"
     )
 
+active_clearance_shortage_alerts = evaluate_all_clearance_shortage_alerts(
+    st.session_state.get('model_shortages_df'),
+    st.session_state.get('nova_materials_df'),
+    st.session_state.get('engine_df'),
+    tcf1_drops,
+    tcf2_drops
+)
+
+if active_clearance_shortage_alerts:
+    alert_box_html = f"""
+    <div style="background-color: #FEF2F2; border: 1.5px solid #EF4444; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px;">
+        <div style="font-weight: 700; font-size: 15px; color: #991B1B; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 18px;">🚨</span>
+            <span>MATERIAL SHORTAGE ALERTS TRIGGERED ({len(active_clearance_shortage_alerts)} Critical Shortage Item{'s' if len(active_clearance_shortage_alerts)>1 else ''})</span>
+        </div>
+        <div style="font-size: 13px; color: #7F1D1D; margin-top: 8px; line-height: 1.6;">
+    """
+    for al in active_clearance_shortage_alerts:
+        alert_box_html += f"• <b>{al['Model']} [{al['Trims']}] - {al['Part Name']}</b>: Clearance Stock is <b>{al['Clearance Qty']}</b> vs Demand <b>{al['Demand Qty']}</b> (<span style='color:#DC2626; font-weight:700;'>Shortage: -{al['Shortage Qty']} units</span>)<br>"
+    alert_box_html += "</div></div>"
+    st.markdown(alert_box_html, unsafe_allow_html=True)
+
 # Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
 tcf_tabs = st.tabs([
     "📈 Summary Report & Excel Download",
@@ -1583,7 +1983,7 @@ with tcf_tabs[1]:
             if selected_loc != 'All Locations':
                 filtered_df = filtered_df[filtered_df['Cab location'] == selected_loc]
                 
-            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Cab location', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
+            display_cols = ['BIW NUMBER', 'Model', 'Trim', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Cab location', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
             
             st.caption("✏️ **Planner Edit Mode** — Click any cell in the **Status** or **Blocking Reason** column to change it. Changes are saved automatically.")
             
@@ -1597,6 +1997,7 @@ with tcf_tabs[1]:
                 column_config={
                     "BIW NUMBER": st.column_config.TextColumn("BIW NUMBER", disabled=True),
                     "Model": st.column_config.TextColumn("Model", disabled=True),
+                    "Trim": st.column_config.TextColumn("Trim", disabled=True),
                     "VEHICLE CODE": st.column_config.TextColumn("VEHICLE CODE", disabled=True),
                     "STATUS": st.column_config.SelectboxColumn(
                         "STATUS",
@@ -1800,7 +2201,7 @@ with tcf_tabs[2]:
             if selected_loc_tcf2 != 'All Locations':
                 filtered_df_tcf2 = filtered_df_tcf2[filtered_df_tcf2['Cab location'] == selected_loc_tcf2]
                 
-            display_cols = ['BIW NUMBER', 'Model', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Cab location', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
+            display_cols = ['BIW NUMBER', 'Model', 'Trim', 'VEHICLE CODE', 'STATUS', 'BLOCKING_REASON', 'Cab location', 'Engine_Part', 'Cockpit_Part', 'Wiring_Part', 'Engine_Stock_After', 'Cockpit_Stock_After', 'Wiring_Stock_After']
             
             st.caption("✏️ **Planner Edit Mode** — Click any cell in the **Status** or **Blocking Reason** column to change it. Changes are saved automatically.")
             
@@ -1814,6 +2215,7 @@ with tcf_tabs[2]:
                 column_config={
                     "BIW NUMBER": st.column_config.TextColumn("BIW NUMBER", disabled=True),
                     "Model": st.column_config.TextColumn("Model", disabled=True),
+                    "Trim": st.column_config.TextColumn("Trim", disabled=True),
                     "VEHICLE CODE": st.column_config.TextColumn("VEHICLE CODE", disabled=True),
                     "STATUS": st.column_config.SelectboxColumn(
                         "STATUS",
@@ -2257,8 +2659,31 @@ with tcf_tabs[5]:
                     open_qty = int(new_nova_input_vals[m_name])
                 else:
                     open_qty = int(r_n['Clearance Qty'])
-                icon = "🟢" if open_qty >= nova_vin_qty and open_qty > 0 else ("🟡" if open_qty > 0 else "🔴")
-                tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
+                
+                if open_qty < nova_vin_qty:
+                    defic = nova_vin_qty - open_qty
+                    icon = "🔴"
+                    tg_report_1_text += f" • {icon} SHORTAGE: {m_name_clean}: {open_qty} (VIN Demand: {nova_vin_qty}, Deficit: -{defic})\n"
+                elif open_qty == 0:
+                    icon = "🔴"
+                    tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
+                else:
+                    icon = "🟢"
+                    tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
+
+        if 'model_shortages_df' in st.session_state and st.session_state.model_shortages_df is not None and not st.session_state.model_shortages_df.empty:
+            tg_report_1_text += f"\n📦 Model-Wise Material Shortage Alerts:\n"
+            for idx_ms, r_ms in st.session_state.model_shortages_df.iterrows():
+                ms_mod = str(r_ms['Model']).strip()
+                ms_trm = str(r_ms.get('Trims', 'All Trims')).strip()
+                ms_part = str(r_ms['Part Name']).strip()
+                ms_c_qty = int(r_ms['Clearance Qty'])
+                ms_d_qty = get_demand_qty_for_model_trims(ms_mod, ms_trm, tcf1_drops, tcf2_drops)
+                if ms_c_qty < ms_d_qty:
+                    ms_def = ms_d_qty - ms_c_qty
+                    tg_report_1_text += f" • 🔴 SHORTAGE: {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty}, Deficit: -{ms_def})\n"
+                else:
+                    tg_report_1_text += f" • 🟢 {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty})\n"
 
         # ----------------- REPORT 2: PUNCH EV (NOVA) EXECUTIVE STATUS REPORT -----------------
         now_time_r2 = format_ist_nearest_15min().replace(" ", "")  # e.g. "04.15PM"
@@ -2298,9 +2723,24 @@ with tcf_tabs[5]:
                 
                 # Add * to lower stock qty only (stock < VIN Qty)
                 if open_qty < nova_vin_qty:
-                    tg_report_2_text += f"*{m_name_clean}: {open_qty}*\n"
+                    defic = nova_vin_qty - open_qty
+                    tg_report_2_text += f"🚨 *SHORTAGE: {m_name_clean}: {open_qty} (Demand: {nova_vin_qty}, Deficit: -{defic})*\n"
                 else:
                     tg_report_2_text += f"{m_name_clean}: {open_qty}\n"
+
+        if 'model_shortages_df' in st.session_state and st.session_state.model_shortages_df is not None and not st.session_state.model_shortages_df.empty:
+            tg_report_2_text += f"\nModel Shortages:\n"
+            for idx_ms, r_ms in st.session_state.model_shortages_df.iterrows():
+                ms_mod = str(r_ms['Model']).strip()
+                ms_trm = str(r_ms.get('Trims', 'All Trims')).strip()
+                ms_part = str(r_ms['Part Name']).strip()
+                ms_c_qty = int(r_ms['Clearance Qty'])
+                ms_d_qty = get_demand_qty_for_model_trims(ms_mod, ms_trm, tcf1_drops, tcf2_drops)
+                if ms_c_qty < ms_d_qty:
+                    ms_def = ms_d_qty - ms_c_qty
+                    tg_report_2_text += f"🚨 *SHORTAGE: {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty}, Deficit: -{ms_def})*\n"
+                else:
+                    tg_report_2_text += f"{ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty}\n"
 
         # Tabbed preview & dispatch options
         report_tab1, report_tab2, report_tab3 = st.tabs([

@@ -854,6 +854,34 @@ def load_nova_stocks_from_db():
     finally:
         conn.close()
 
+def save_model_shortages_to_db(df):
+    """Saves Model-Wise Shortage DataFrame to the DB."""
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        if df is None or df.empty:
+            conn.execute("DROP TABLE IF EXISTS model_shortages")
+        else:
+            df.to_sql('model_shortages', conn, if_exists='replace', index=False)
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+def load_model_shortages_from_db():
+    """Loads Model-Wise Shortages from the DB."""
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql("SELECT * FROM model_shortages", conn)
+        if not df.empty:
+            return df
+        return None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
 def init_metadata_db():
     """Initializes the metadata table if it does not exist."""
     conn = sqlite3.connect(DB_PATH)
@@ -1133,4 +1161,91 @@ def send_telegram_document(bot_token, chat_id, file_bytes, caption="", filename=
             return False, f"❌ Telegram API Error: {desc}"
     except Exception as e:
         return False, f"❌ HTTP/Network Error: {e}"
+
+
+def extract_trim_from_sales_desc(sales_desc, model_name=""):
+    """Extracts standardized Trim label from Sales Description or Vehicle Code."""
+    if not sales_desc or pd.isna(sales_desc):
+        return "—"
+    d = str(sales_desc).upper().strip()
+    m = str(model_name).upper().strip()
+    
+    fuel = ""
+    if "CNG" in d:
+        fuel = " CNG"
+    elif "TGDI" in d:
+        fuel = " TGDI"
+        
+    # Trim check
+    if "FEA+" in d or "FEA +" in d or "FEA PLUS" in d:
+        return "FEA+" + fuel
+    elif "FEA" in d or "FEARLESS" in d:
+        return "FEA" + fuel
+    elif "EMP+ S" in d or "EMP + S" in d:
+        return "EMP+ S" + fuel
+    elif "EMP" in d or "EMPOWERED" in d:
+        return "EMP" + fuel
+    elif "FRLR" in d:
+        return "FRLR" + fuel
+    elif "FRL" in d:
+        return "FRL" + fuel
+    elif "ACCOMP + S" in d or "ACCOMP+S" in d or "ACCOMP +S" in d:
+        return "ACCOMP + S" + fuel
+    elif "ACCOMP" in d or "ACC" in d:
+        return "ACC" if ("HARRIER" in m or "SAFARI" in m) else ("ACCOMP" + fuel)
+    elif "ADVT S" in d or "ADVT + S" in d or "ADV S" in d:
+        return "ADVT S" + fuel
+    elif "ADVT" in d or "ADVENTURE" in d or "ADV" in d:
+        return "ADV" if ("HARRIER" in m or "SAFARI" in m) else ("ADVT" + fuel)
+    elif "PURE + S" in d or "PURE+S" in d:
+        return "PURE + S" + fuel
+    elif "PURE +" in d or "PURE+" in d:
+        return "PURE +" + fuel
+    elif "PURE" in d or "PUR" in d:
+        return "PUR" if ("HARRIER" in m or "SAFARI" in m) else ("PURE" + fuel)
+    elif "CREATIVE" in d or "LUX" in d:
+        return "CREATIVE" + fuel
+    elif "SMART+" in d or "SMT+" in d:
+        return "SMT+" + fuel
+    elif "SMART" in d or "SMT" in d:
+        return "SMT" if ("HARRIER" in m or "SAFARI" in m or "EV" in m) else ("SMART" + fuel)
+
+    tokens = d.split()
+    if len(tokens) >= 3:
+        return " ".join(tokens[1:3]) + fuel
+    return d + fuel
+
+
+def load_all_models_catalog(filepath):
+    """Loads All models.xlsx spreadsheet and returns VC mapping dicts for Sales Description and Trim."""
+    vc_to_desc = {}
+    vc_to_trim = {}
+    if not filepath or not os.path.exists(filepath):
+        return vc_to_desc, vc_to_trim
+        
+    try:
+        xl = pd.ExcelFile(filepath)
+        for sheet in xl.sheet_names:
+            df = pd.read_excel(filepath, sheet_name=sheet)
+            desc_col = 'Sales Description' if 'Sales Description' in df.columns else None
+            vc_col = 'Color VC' if 'Color VC' in df.columns else ('vc' if 'vc' in df.columns else ('SUB VC' if 'SUB VC' in df.columns else None))
+            group_col = 'Group PL ' if 'Group PL ' in df.columns else ('PRODUCT' if 'PRODUCT' in df.columns else None)
+            
+            if desc_col and vc_col:
+                for idx, row in df.iterrows():
+                    full_v = str(row[vc_col]).strip()
+                    s_desc = str(row[desc_col]).strip()
+                    g_pl = str(row[group_col]).strip() if group_col and pd.notna(row[group_col]) else ""
+                    trim_val = extract_trim_from_sales_desc(s_desc, g_pl)
+                    
+                    if full_v and full_v != 'nan':
+                        vc_to_desc[full_v] = s_desc
+                        vc_to_trim[full_v] = trim_val
+                        short_v = full_v[:9]
+                        vc_to_desc[short_v] = s_desc
+                        vc_to_trim[short_v] = trim_val
+    except Exception as e:
+        print(f"Error loading All models.xlsx catalog: {e}")
+        
+    return vc_to_desc, vc_to_trim
 

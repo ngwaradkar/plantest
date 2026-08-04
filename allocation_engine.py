@@ -51,7 +51,44 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
             
     return true_stock, consumed, warnings
 
-def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_nova=None):
+def _is_model_trim_matched(cab_model, cab_sales_desc, target_model, target_trims):
+    t_mod = str(target_model).strip().upper()
+    c_mod = str(cab_model).strip().upper() if cab_model else ''
+    c_desc = str(cab_sales_desc).strip().upper() if cab_sales_desc else ''
+    
+    model_match = False
+    if t_mod == 'HARRIER / SAFARI':
+        if any(k in c_mod or k in c_desc for k in ['HARRIER', 'SAFARI', 'GRAVITAS', 'Q5']):
+            model_match = True
+    elif t_mod == 'HARRIER.EV':
+        if any(k in c_mod or k in c_desc for k in ['HARRIER.EV', 'ETURNA']):
+            model_match = True
+    elif t_mod == 'PUNCH.EV':
+        if any(k in c_mod or k in c_desc for k in ['PUNCH.EV', 'NOVA']):
+            model_match = True
+    elif t_mod == 'PUNCH':
+        if any(k in c_mod or k in c_desc for k in ['PUNCH', 'HORNBILL']) and 'EV' not in c_mod and 'NOVA' not in c_mod and 'PUNCH.EV' not in c_desc:
+            model_match = True
+    else:
+        if t_mod in c_mod or t_mod in c_desc:
+            model_match = True
+
+    if not model_match:
+        return False
+
+    t_trims = str(target_trims).strip().upper()
+    if not t_trims or 'ALL TRIMS' in t_trims:
+        return True
+
+    trims_list = [t.strip() for t in t_trims.split(',') if t.strip()]
+    for t_val in trims_list:
+        if t_val in c_desc:
+            return True
+
+    return False
+
+
+def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_nova=None, model_shortages=None):
     """
     Runs the FIFO allocation loop for PBS cabs.
     - pbs_queue: DataFrame of cabs in PBS (sorted FIFO by PBS LIFT, HOLD BY is null)
@@ -60,6 +97,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
     - true_cockpit: dict of true stock for Cockpits (None if not available)
     - true_wiring: dict of true stock for Wiring (None if not available)
     - true_nova: dict of Punch EV material stocks (Battery, Combo, Tube Frame(Craddle), Subframe, RTB)
+    - model_shortages: list of dicts [{'Model': '...', 'Trims': '...', 'Part Name': '...', 'Stock': int}]
     
     Returns:
       - results: list of dicts representing allocated cabs
@@ -70,6 +108,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
     virt_cockpit = true_cockpit.copy() if true_cockpit is not None else None
     virt_wiring = true_wiring.copy() if true_wiring is not None else None
     virt_nova = true_nova.copy() if true_nova is not None else None
+    virt_model_shortages = [dict(item) for item in model_shortages] if model_shortages else []
     
     results = []
     
@@ -79,7 +118,8 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
             'engine': virt_engine,
             'cockpit': virt_cockpit,
             'wiring': virt_wiring,
-            'nova': virt_nova
+            'nova': virt_nova,
+            'model_shortages': virt_model_shortages
         }
         
     # Process cabs in FIFO order
@@ -165,6 +205,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
         has_engine = True
         has_cockpit = True
         has_wiring = True
+        has_model_shortage = False
         
         shortages = []
         
@@ -173,7 +214,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
             nova_shortages = []
             for mat_name, mat_qty in virt_nova.items():
                 if mat_qty <= 0:
-                    nova_shortages.append(f"{mat_name} 546816111212 (Stock: {mat_qty})")
+                    nova_shortages.append(f"{mat_name} (Stock: {mat_qty})")
             if nova_shortages:
                 has_engine = False
                 shortages.extend(nova_shortages)
@@ -199,8 +240,18 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
                 has_wiring = False
                 shortages.append(f"Wiring {wh_part_str} (Stock: {stock})")
                 
+        # Model-Wise Shortages stock check
+        matched_ms_items = []
+        if virt_model_shortages:
+            for ms_item in virt_model_shortages:
+                if _is_model_trim_matched(product, sales_desc, ms_item['Model'], ms_item.get('Trims', 'All Trims')):
+                    matched_ms_items.append(ms_item)
+                    if ms_item['Stock'] <= 0:
+                        has_model_shortage = True
+                        shortages.append(f"{ms_item['Part Name']} (Stock: {ms_item['Stock']})")
+
         # If all available, allocate
-        if has_engine and has_cockpit and has_wiring:
+        if has_engine and has_cockpit and has_wiring and not has_model_shortage:
             # Decrement stocks
             if virt_engine is not None and eng_part_str in virt_engine:
                 virt_engine[eng_part_str] -= 1
@@ -211,6 +262,8 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
                 virt_cockpit[ck_part_str] -= 1
             if virt_wiring is not None and wh_part_str in virt_wiring:
                 virt_wiring[wh_part_str] -= 1
+            for ms_item in matched_ms_items:
+                ms_item['Stock'] -= 1
                 
             results.append({
                 'BIW NUMBER': biw_num,
@@ -243,7 +296,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
                 'SALES DESCRIPTION': sales_desc,
                 'SHOP': shop,
                 'STATUS': '🚫 Blocked',
-                'BLOCKING_REASON': "Shortage: " + ", ".join(shortages),
+                'BLOCKING_REASON': f"Shortage: {', '.join(shortages)}",
                 'Engine_Part': eng_part_str,
                 'Cockpit_Part': ck_part_str,
                 'Wiring_Part': wh_part_str,
