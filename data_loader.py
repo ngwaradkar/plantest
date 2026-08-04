@@ -1252,11 +1252,37 @@ def load_all_models_catalog(filepath):
     return vc_to_desc, vc_to_trim
 
 
+def map_tcf_model_name(raw_name):
+    """Maps internal code names from Shop Wise Report to clean TCF model names and filters non-TCF models."""
+    name = str(raw_name).strip()
+    u = name.upper()
+    
+    if 'HORNBILL' in u or 'PUNCH' in u:
+        if 'EXP' in u:
+            return 'PUNCH Exports'
+        if 'EV' in u or 'NOVA' in u:
+            return 'PUNCH EV'
+        return 'PUNCH'
+    elif 'NOVA' in u:
+        return 'PUNCH EV'
+    elif 'ETURNA' in u:
+        return 'HARRIER EV'
+    elif 'GRAVITAS' in u or 'SAFARI' in u:
+        if 'EV' in u:
+            return 'SAFARI EV'
+        return 'SAFARI'
+    elif 'Q5' in u or 'HARRIER' in u:
+        if 'EV' in u or 'ETURNA' in u:
+            return 'HARRIER EV'
+        return 'HARRIER'
+    return None
+
+
 def load_shop_wise_report(filepath_or_buffer):
     """
     Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb or .xlsx) and returns:
       - totals_dict: dict of plant total metrics (TCF VIN, TCF2 VIN, TCF DROP, TCF2 DROP, TCF ROLL, TCF2 ROLL, TCF IOK, TCF2 IOK, PAINT, WELD, PBS, T60, T40)
-      - df_vehicles: DataFrame of model-wise production breakdown across shops
+      - df_vehicles: DataFrame of TCF1 & TCF2 model-wise production breakdown with updated brand names
       - df_ta: DataFrame of Transaxle (TA) engine dispatch counts
     """
     if not filepath_or_buffer:
@@ -1289,36 +1315,40 @@ def load_shop_wise_report(filepath_or_buffer):
                     totals_dict[col_name] = str(val).strip()
 
         model_rows = []
+        ta_rows = []
         for i in range(3, len(df)):
             row_vals = df.iloc[i].values
-            model_name = str(row_vals[0]).strip()
-            if not model_name or model_name.lower() in ['nan', 'none', 'total', 'model']:
-                continue
-            if row_vals[0] is None or pd.isna(row_vals[0]):
+            raw_model = str(row_vals[0]).strip()
+            if not raw_model or raw_model.lower() in ['nan', 'none', 'total', 'model']:
                 continue
 
-            m_dict = {'Model': model_name}
-            has_data = False
+            # TA engine check
+            if raw_model.isdigit():
+                qty = 0
+                try:
+                    qty = int(float(str(row_vals[1]).strip()))
+                except Exception:
+                    pass
+                ta_rows.append({'Transaxle (TA) Code': raw_model, 'Count': qty})
+                continue
+
+            # TCF Model check
+            mapped_model = map_tcf_model_name(raw_model)
+            if not mapped_model:
+                continue # Skip non-TCF models like ALTROZ, NEXON, CURVV.EV
+
+            m_dict = {'Model': mapped_model}
             for col_idx, col_name in enumerate(cols[1:], start=1):
                 val = row_vals[col_idx] if col_idx < len(row_vals) else 0
                 try:
                     num_v = int(float(str(val).strip()))
                     m_dict[col_name] = num_v
-                    if num_v > 0:
-                        has_data = True
                 except Exception:
                     m_dict[col_name] = 0
-            if has_data or any(k in model_name.upper() for k in ['HORNBILL', 'NOVA', 'ALTROZ', 'HARRIER', 'SAFARI', 'Q5', 'GRAVITAS', 'ETURNA', 'NEXON', 'CURVV']) or model_name.isdigit():
-                model_rows.append(m_dict)
+            model_rows.append(m_dict)
 
-        df_all = pd.DataFrame(model_rows) if model_rows else pd.DataFrame()
-        if df_all.empty:
-            return totals_dict, None, None
-
-        is_ta = df_all['Model'].astype(str).str.strip().str.isdigit()
-        df_vehicles = df_all[~is_ta].copy().reset_index(drop=True)
-        df_ta = df_all[is_ta][['Model', 'TCF VIN']].copy().reset_index(drop=True)
-        df_ta.columns = ['Transaxle (TA) Code', 'Count']
+        df_vehicles = pd.DataFrame(model_rows) if model_rows else None
+        df_ta = pd.DataFrame(ta_rows) if ta_rows else None
 
         return totals_dict, df_vehicles, df_ta
     except Exception as e:
