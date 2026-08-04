@@ -1347,7 +1347,25 @@ def load_shop_wise_report(filepath_or_buffer):
                     m_dict[col_name] = 0
             model_rows.append(m_dict)
 
-        df_vehicles = pd.DataFrame(model_rows) if model_rows else None
+        simplified_model_rows = []
+        for r in model_rows:
+            m_name = r['Model']
+            v_cnt = r.get('TCF VIN', 0) + r.get('TCF2 VIN', 0)
+            d_cnt = r.get('TCF DROP', 0) + r.get('TCF2 DROP', 0)
+            p_cnt = r.get('PAINT', 0)
+            t60_cnt = r.get('T60', 0)
+            t40_cnt = r.get('T40', 0)
+            
+            simplified_model_rows.append({
+                'Model': m_name,
+                'VIN': v_cnt,
+                'Drop': d_cnt,
+                'Paint Lifting': p_cnt,
+                'T60': t60_cnt,
+                'T40': t40_cnt
+            })
+
+        df_vehicles = pd.DataFrame(simplified_model_rows) if simplified_model_rows else None
         df_ta = pd.DataFrame(ta_rows) if ta_rows else None
 
         return totals_dict, df_vehicles, df_ta
