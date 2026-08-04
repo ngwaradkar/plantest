@@ -2989,12 +2989,13 @@ with tcf_tabs[0]:
             rep_date = shop_totals.get('Date', shop_totals.get('REPORT DATE', '03/08/2026'))
             st.caption(f"📅 **Report Date**: {rep_date}")
             
-            s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5 = st.columns(5)
+            s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5, s_kpi6 = st.columns(6)
             s_kpi1.metric("TCF1 VIN Count", f"{shop_totals.get('TCF VIN', 0)} cabs")
             s_kpi2.metric("TCF2 VIN Count", f"{shop_totals.get('TCF2 VIN', 0)} cabs")
-            s_kpi3.metric("Total DPT Drops", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
-            s_kpi4.metric("Paint Shop Total", f"{shop_totals.get('PAINT', 0)} cabs")
-            s_kpi5.metric("PBS Buffer Count", f"{shop_totals.get('PBS', 0)} cabs")
+            s_kpi3.metric("Total TCF Dropping", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
+            s_kpi4.metric("Paint Lifting", f"{shop_totals.get('PAINT', 0)} cabs")
+            s_kpi5.metric("T60 Count", f"{shop_totals.get('T60', 0)} cabs")
+            s_kpi6.metric("T40 Count", f"{shop_totals.get('T40', 0)} cabs")
             
         if shop_vehicles_df is not None and not shop_vehicles_df.empty:
             st.markdown("#### 🚗 Model-Wise Production Matrix (TCF1 & TCF2 Breakdown)")
