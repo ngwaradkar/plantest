@@ -724,6 +724,8 @@ def detect_and_classify_files(directory_path):
                 set_cat('TCF2_WIRING_STOCK', path)
             else:
                 set_cat('TCF1_WIRING_STOCK', path)
+        elif 'shop' in name_lower and 'report' in name_lower:
+            set_cat('SHOP_WISE_REPORT', path)
                 
     return classifications
 
@@ -1248,4 +1250,78 @@ def load_all_models_catalog(filepath):
         print(f"Error loading All models.xlsx catalog: {e}")
         
     return vc_to_desc, vc_to_trim
+
+
+def load_shop_wise_report(filepath_or_buffer):
+    """
+    Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb or .xlsx) and returns:
+      - totals_dict: dict of plant total metrics (TCF VIN, TCF2 VIN, TCF DROP, TCF2 DROP, TCF ROLL, TCF2 ROLL, TCF IOK, TCF2 IOK, PAINT, WELD, PBS, T60, T40)
+      - df_vehicles: DataFrame of model-wise production breakdown across shops
+      - df_ta: DataFrame of Transaxle (TA) engine dispatch counts
+    """
+    if not filepath_or_buffer:
+        return None, None, None
+
+    try:
+        if isinstance(filepath_or_buffer, str):
+            ext = os.path.splitext(filepath_or_buffer.lower())[1]
+            if ext == '.xlsb':
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+            else:
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0)
+        else:
+            df = pd.read_excel(filepath_or_buffer, sheet_name=0)
+
+        if df.empty or len(df) < 3:
+            return None, None, None
+
+        header_row = df.iloc[0].values
+        cols = [str(c).strip() for c in header_row]
+
+        totals_row = df.iloc[1].values
+        totals_dict = {}
+        for col_idx, col_name in enumerate(cols):
+            if col_idx < len(totals_row):
+                val = totals_row[col_idx]
+                try:
+                    totals_dict[col_name] = int(float(str(val).strip()))
+                except Exception:
+                    totals_dict[col_name] = str(val).strip()
+
+        model_rows = []
+        for i in range(3, len(df)):
+            row_vals = df.iloc[i].values
+            model_name = str(row_vals[0]).strip()
+            if not model_name or model_name.lower() in ['nan', 'none', 'total', 'model']:
+                continue
+            if row_vals[0] is None or pd.isna(row_vals[0]):
+                continue
+
+            m_dict = {'Model': model_name}
+            has_data = False
+            for col_idx, col_name in enumerate(cols[1:], start=1):
+                val = row_vals[col_idx] if col_idx < len(row_vals) else 0
+                try:
+                    num_v = int(float(str(val).strip()))
+                    m_dict[col_name] = num_v
+                    if num_v > 0:
+                        has_data = True
+                except Exception:
+                    m_dict[col_name] = 0
+            if has_data or any(k in model_name.upper() for k in ['HORNBILL', 'NOVA', 'ALTROZ', 'HARRIER', 'SAFARI', 'Q5', 'GRAVITAS', 'ETURNA', 'NEXON', 'CURVV']) or model_name.isdigit():
+                model_rows.append(m_dict)
+
+        df_all = pd.DataFrame(model_rows) if model_rows else pd.DataFrame()
+        if df_all.empty:
+            return totals_dict, None, None
+
+        is_ta = df_all['Model'].astype(str).str.strip().str.isdigit()
+        df_vehicles = df_all[~is_ta].copy().reset_index(drop=True)
+        df_ta = df_all[is_ta][['Model', 'TCF VIN']].copy().reset_index(drop=True)
+        df_ta.columns = ['Transaxle (TA) Code', 'Count']
+
+        return totals_dict, df_vehicles, df_ta
+    except Exception as e:
+        print(f"Error loading Shop_Wise_Report: {e}")
+        return None, None, None
 

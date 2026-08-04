@@ -673,6 +673,7 @@ all_categories = [
     'BOM', 
     'FLOAT_REPORT', 
     'FLOAT_PAINT_SUMMARY',
+    'SHOP_WISE_REPORT',
     'TCF1_VGL', 'TCF2_VGL',
     'TCF1_ALTROZ_COCKPIT_STOCK', 'TCF1_NOVA_COCKPIT_STOCK', 'TCF2_COCKPIT_STOCK',
     'TCF1_WIRING_STOCK', 'TCF2_WIRING_STOCK'
@@ -1176,9 +1177,15 @@ try:
         paint_summary_dict = dl.load_paint_summary_report(loaded_data['FLOAT_PAINT_SUMMARY']) if 'FLOAT_PAINT_SUMMARY' in loaded_data else None
         paint_summary_vc_dict = dl.load_paint_summary_by_vc(loaded_data['FLOAT_PAINT_SUMMARY']) if 'FLOAT_PAINT_SUMMARY' in loaded_data else None
         
-        # 3. Load VGL drops
+        # 3. Load VGL drops & Shop-Wise Report
         tcf1_drops = dl.load_vgl(loaded_data['TCF1_VGL']) if 'TCF1_VGL' in loaded_data else None
         tcf2_drops = dl.load_vgl(loaded_data['TCF2_VGL']) if 'TCF2_VGL' in loaded_data else None
+        
+        shop_totals = None
+        shop_vehicles_df = None
+        shop_ta_df = None
+        if 'SHOP_WISE_REPORT' in loaded_data:
+            shop_totals, shop_vehicles_df, shop_ta_df = dl.load_shop_wise_report(loaded_data['SHOP_WISE_REPORT'])
         
         # 4. Parse stocks
         # Wiring Stock
@@ -2450,6 +2457,30 @@ with tcf_tabs[4]:
 
     tot_pbs_h = len(pbs_on_hold_cleaned)
     tot_ps_h = len(paintshop_on_hold_cleaned)
+
+    # --- SECTION 0: SHOP-WISE PLANT PRODUCTION SUMMARY ---
+    if shop_totals is not None or shop_vehicles_df is not None:
+        st.markdown("### 🏭 Shop-Wise Plant Production Summary (Daily Report)")
+        if shop_totals:
+            rep_date = shop_totals.get('Date', shop_totals.get('REPORT DATE', '03/08/2026'))
+            st.caption(f"📅 **Report Date**: {rep_date}")
+            
+            s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5 = st.columns(5)
+            s_kpi1.metric("TCF1 VIN Count", f"{shop_totals.get('TCF VIN', 0)} cabs")
+            s_kpi2.metric("TCF2 VIN Count", f"{shop_totals.get('TCF2 VIN', 0)} cabs")
+            s_kpi3.metric("Total DPT Drops", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
+            s_kpi4.metric("Paint Shop Total", f"{shop_totals.get('PAINT', 0)} cabs")
+            s_kpi5.metric("PBS Buffer Count", f"{shop_totals.get('PBS', 0)} cabs")
+            
+        if shop_vehicles_df is not None and not shop_vehicles_df.empty:
+            st.markdown("#### 🚗 Model-Wise Production Matrix")
+            st.dataframe(shop_vehicles_df, use_container_width=True, hide_index=True)
+            
+        if shop_ta_df is not None and not shop_ta_df.empty:
+            st.markdown("#### ⚙️ Transaxle / Engine Dispatches (TA)")
+            st.dataframe(shop_ta_df, use_container_width=True, hide_index=True)
+            
+        st.markdown("---")
 
     metric_cols = st.columns(3)
     metric_cols[0].metric("PBS Buffer Holds", f"{tot_pbs_h} cabs", help="Cabs in PBS Buffer on Quality hold")
