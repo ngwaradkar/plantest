@@ -2779,47 +2779,11 @@ with tcf_tabs[5]:
                 else:
                     tg_report_2_text += f"{ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty}\n"
         # Build Report 3: TCF Dropping vs. Paint Lifting Status
-        tcf1_drop_val = 526
-        tcf1_paint_val = 509
-        tcf2_drop_val = 97
-        tcf2_paint_val = 94
-        t60_val = 55
-        t40_val = 27
+        tcf1_gap_str = f"\n*Gap:{tcf1_drop_val - tcf1_paint_val:02d}*" if tcf1_drop_val >= tcf1_paint_val else ""
+        tcf2_gap_str = f"\n *Gap: {tcf2_drop_val - tcf2_paint_val:02d}* " if tcf2_drop_val >= tcf2_paint_val else ""
         
-        if shop_totals:
-            tcf1_drop_val = int(shop_totals.get('TCF DROP', 526))
-            tcf2_drop_val = int(shop_totals.get('TCF2 DROP', 97))
-            
-        if shop_vehicles_df is not None and not shop_vehicles_df.empty:
-            tcf1_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['PUNCH', 'PUNCH Exports', 'PUNCH EV'])]
-            tcf2_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['HARRIER EV', 'SAFARI', 'HARRIER'])]
-            
-            if not tcf1_m.empty:
-                tcf1_paint_val = int(tcf1_m['Paint Lifting'].sum())
-                t60_val = int(tcf1_m['T60'].sum())
-            if not tcf2_m.empty:
-                tcf2_paint_val = int(tcf2_m['Paint Lifting'].sum())
-                t40_val = int(tcf2_m['T40'].sum())
-
-        tcf1_gap = abs(tcf1_drop_val - tcf1_paint_val)
-        tcf2_gap = abs(tcf2_drop_val - tcf2_paint_val)
-        
-        tcf1_r_cabs = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 8
-        tcf1_h_cabs = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'].isin(['🚫 Blocked', '⚠️ PBS Hold'])]) if not tcf1_alloc_df.empty else 8
-        tcf1_hold_text = f"{tcf1_h_cabs:02d} cabs hold for Paint and BIW hold."
-        
-        tcf2_r_cabs = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 16
-        tcf2_h_cabs = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'].isin(['🚫 Blocked', '⚠️ PBS Hold'])]) if not tcf2_alloc_df.empty else 42
-        
-        tcf2_hold_text = f"{tcf2_h_cabs:02d} Harrier EV hold for combo shortage."
-        if not tcf2_alloc_df.empty:
-            tcf2_blocked = tcf2_alloc_df[tcf2_alloc_df['STATUS'].isin(['🚫 Blocked', '⚠️ PBS Hold'])]
-            if not tcf2_blocked.empty and 'Model' in tcf2_blocked.columns:
-                top_m = tcf2_blocked['Model'].value_counts().index[0]
-                top_r = tcf2_blocked['BLOCKING_REASON'].mode().iloc[0] if 'BLOCKING_REASON' in tcf2_blocked.columns and not tcf2_blocked['BLOCKING_REASON'].dropna().empty else "combo shortage"
-                if "Shortage" in str(top_r):
-                    top_r = "combo shortage"
-                tcf2_hold_text = f"{len(tcf2_blocked)} {top_m} hold for {top_r}."
+        tcf1_pbs_detail_str = f"{t1_ready} cabs ({t1_qa_hold} QA hold, {t1_shortages_cnt} Material Shortage)"
+        tcf2_pbs_detail_str = f"{t2_ready} cabs ({t2_qa_hold} QA hold, {t2_shortages_cnt} Material Shortage)"
 
         tg_report_3_text = f"""Dear Sir
 
@@ -2827,13 +2791,11 @@ TCF Dropping vs. Paint Lifting Status:
 
 TCF1:
 Dropping: {tcf1_drop_val}
-Paint Lifting: {tcf1_paint_val}
-*Gap:{tcf1_gap:02d}*
+Paint Lifting: {tcf1_paint_val}{tcf1_gap_str}
 
 TCF2:
 Dropping : {tcf2_drop_val}
-Paint Lifting: {tcf2_paint_val}
- *Gap: {tcf2_gap:02d}* 
+Paint Lifting: {tcf2_paint_val}{tcf2_gap_str}
 
 Dropping Float:
 *T60: {t60_val}*
@@ -2841,9 +2803,9 @@ Dropping Float:
 
 Available Cabs for VIN Generation:
 
-TCF1: {tcf1_r_cabs:02d} cabs +{tcf1_hold_text}
+TCF1: {tcf1_pbs_detail_str}
 
-TCF2: {tcf2_r_cabs:02d} cabs+ {tcf2_hold_text}"""
+TCF2: {tcf2_pbs_detail_str}"""
 
         # Tabbed preview & dispatch options
         report_tab1, report_tab2, report_tab3, report_tab4 = st.tabs([
