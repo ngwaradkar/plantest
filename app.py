@@ -2637,17 +2637,47 @@ with tcf_tabs[5]:
                 tcf1_alloc_df['VEHICLE CODE'].astype(str).str.startswith('5468')
             ]
             nova_vin_qty = len(nova_cabs)
+        tcf1_drop_val = 0
+        tcf1_paint_val = 0
+        tcf2_drop_val = 0
+        tcf2_paint_val = 0
+        t60_val = 0
+        t40_val = 0
+        
+        if shop_totals:
+            tcf1_drop_val = int(shop_totals.get('TCF DROP', 0))
+            tcf2_drop_val = int(shop_totals.get('TCF2 DROP', 0))
+            t60_val = int(shop_totals.get('T60', 0))
+            t40_val = int(shop_totals.get('T40', 0))
+            
+        if shop_vehicles_df is not None and not shop_vehicles_df.empty:
+            tcf1_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['PUNCH', 'PUNCH Exports', 'PUNCH EV'])]
+            tcf2_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['HARRIER EV', 'SAFARI', 'HARRIER'])]
+            
+            if not tcf1_m.empty:
+                tcf1_paint_val = int(tcf1_m['Paint Lifting'].sum())
+                sum_t60 = int(tcf1_m['T60'].sum())
+                if sum_t60 > 0 or t60_val == 0:
+                    t60_val = sum_t60
+            if not tcf2_m.empty:
+                tcf2_paint_val = int(tcf2_m['Paint Lifting'].sum())
+                sum_t40 = int(tcf2_m['T40'].sum())
+                if sum_t40 > 0 or t40_val == 0:
+                    t40_val = sum_t40
 
-        # ----------------- REPORT 1: TCF1 & TCF2 PPC REPORT -----------------
         now_str_r1 = format_ist_now("%d-%m-%Y %I:%M %p")
         tg_report_1_text = f"📊 TCF1 & TCF2 PPC REPORT\n"
         tg_report_1_text += f"⏰ Report Time: {now_str_r1}\n\n"
         tg_report_1_text += f"🏭 TCF1 LINE (Punch / Punch EV):\n"
-        tg_report_1_text += f"🚗 VIN GENERATION - {t1_vin_gen}\n"
+        tg_report_1_text += f" • 🚜 Dropping: {tcf1_drop_val}\n"
+        tg_report_1_text += f" • 🎨 Paint Lifting: {tcf1_paint_val}\n"
+        tg_report_1_text += f" • ⏱️ T60: {t60_val}\n"
         tg_report_1_text += f" • ✅ Ready for TCF: {t1_ready}\n"
         tg_report_1_text += f" • 🚫 Shortages: {t1_blocked_summary}\n\n"
         tg_report_1_text += f"🏭 TCF2 LINE (Harrier / Safari):\n"
-        tg_report_1_text += f"🚗 VIN generation - {t2_vin_gen}\n"
+        tg_report_1_text += f" • 🚜 Dropping: {tcf2_drop_val}\n"
+        tg_report_1_text += f" • 🎨 Paint Lifting: {tcf2_paint_val}\n"
+        tg_report_1_text += f" • ⏱️ T40: {t40_val}\n"
         tg_report_1_text += f" • ✅ Ready for TCF: {t2_ready}\n"
         tg_report_1_text += f" • 🚫 Shortages: {t2_blocked_summary}\n\n"
         tg_report_1_text += f"📦 PBS Cab details:\n\n"
@@ -2748,7 +2778,6 @@ with tcf_tabs[5]:
                     tg_report_2_text += f"🚨 *SHORTAGE: {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty}, Deficit: -{ms_def})*\n"
                 else:
                     tg_report_2_text += f"{ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty}\n"
-
         # Build Report 3: TCF Dropping vs. Paint Lifting Status
         tcf1_drop_val = 526
         tcf1_paint_val = 509
