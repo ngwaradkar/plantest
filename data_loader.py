@@ -651,6 +651,8 @@ def classify_files(uploaded_files):
                 classifications['TCF2_WIRING_STOCK'] = f
             else:
                 classifications['TCF1_WIRING_STOCK'] = f
+        elif name.startswith('shop_wise_report') or 'shop_wise' in name or ('shop' in name and 'report' in name):
+            classifications['SHOP_WISE_REPORT'] = f
                 
     return classifications
 
@@ -724,7 +726,7 @@ def detect_and_classify_files(directory_path):
                 set_cat('TCF2_WIRING_STOCK', path)
             else:
                 set_cat('TCF1_WIRING_STOCK', path)
-        elif 'shop' in name_lower and 'report' in name_lower:
+        elif name_lower.startswith('shop_wise_report') or 'shop_wise' in name_lower or ('shop' in name_lower and 'report' in name_lower):
             set_cat('SHOP_WISE_REPORT', path)
                 
     return classifications
