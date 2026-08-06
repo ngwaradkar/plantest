@@ -1187,7 +1187,17 @@ try:
         shop_vehicles_df = None
         shop_ta_df = None
         if 'SHOP_WISE_REPORT' in loaded_data:
-            shop_totals, shop_vehicles_df, shop_ta_df = dl.load_shop_wise_report(loaded_data['SHOP_WISE_REPORT'])
+            shop_totals, shop_vehicles_df, shop_ta_df, shop_debug_info = dl.load_shop_wise_report(
+                loaded_data['SHOP_WISE_REPORT'], return_debug=True
+            )
+            if not shop_debug_info.get('success'):
+                with st.expander("⚠️ Shop Wise Report failed to load — click for details", expanded=True):
+                    st.error(shop_debug_info.get('reason', 'Unknown error while parsing the Shop Wise Report.'))
+                    attempts = shop_debug_info.get('attempts') or []
+                    if attempts:
+                        st.markdown("**Engines/paths tried and why each failed:**")
+                        for a in attempts:
+                            st.markdown(f"- `{a['stage']}`: {a['error']}")
         
         # 4. Parse stocks
         # Wiring Stock

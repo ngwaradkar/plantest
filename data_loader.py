@@ -1319,15 +1319,29 @@ def _reset_buffer(filepath_or_buffer):
             pass
 
 
-def load_shop_wise_report(filepath_or_buffer):
+def load_shop_wise_report(filepath_or_buffer, return_debug=False):
     """
     Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb, .xlsx, .xls, or HTML) and returns:
       - totals_dict: dict of plant total metrics (TCF VIN, TCF2 VIN, TCF DROP, TCF2 DROP, TCF ROLL, TCF2 ROLL, TCF IOK, TCF2 IOK, PAINT, WELD, PBS, T60, T40)
       - df_vehicles: DataFrame of TCF1 & TCF2 model-wise production breakdown with updated brand names
       - df_ta: DataFrame of Transaxle (TA) engine dispatch counts
+
+    If return_debug=True, a 4th value (debug_info dict) is also returned. debug_info always has:
+      - 'success': bool
+      - 'engine_used': which read path produced the data ('html', 'pyxlsb', 'read_excel', 'xlrd', or None)
+      - 'attempts': list of {'stage': str, 'error': str} for every fallback that was tried and failed
+      - 'reason': short human-readable explanation when success is False
     """
-    if not filepath_or_buffer:
+    debug_info = {'success': False, 'engine_used': None, 'attempts': [], 'reason': None}
+
+    def _fail(reason):
+        debug_info['reason'] = reason
+        if return_debug:
+            return None, None, None, debug_info
         return None, None, None
+
+    if not filepath_or_buffer:
+        return _fail("No file was provided.")
 
     df = None
     try:
@@ -1340,8 +1354,9 @@ def load_shop_wise_report(filepath_or_buffer):
                 dfs = pd.read_html(io.StringIO(html_content), header=None)
                 if dfs:
                     df = dfs[0]
-            except Exception:
-                pass
+                    debug_info['engine_used'] = 'html'
+            except Exception as e:
+                debug_info['attempts'].append({'stage': 'html', 'error': str(e)})
 
         # 2. Try pyxlsb engine if .xlsb extension
         if df is None:
@@ -1349,40 +1364,61 @@ def load_shop_wise_report(filepath_or_buffer):
             if ext == '.xlsb':
                 try:
                     df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb', header=None)
-                except Exception:
+                    debug_info['engine_used'] = 'pyxlsb'
+                except Exception as e:
+                    debug_info['attempts'].append({'stage': 'pyxlsb (.xlsb ext)', 'error': str(e)})
                     _reset_buffer(filepath_or_buffer)
 
         # 3. Standard pandas read_excel fallback chain
         if df is None:
             try:
                 df = pd.read_excel(filepath_or_buffer, sheet_name=0, header=None)
-            except Exception:
+                debug_info['engine_used'] = 'read_excel'
+            except Exception as e:
+                debug_info['attempts'].append({'stage': 'read_excel (auto engine)', 'error': str(e)})
                 _reset_buffer(filepath_or_buffer)
                 try:
                     df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb', header=None)
-                except Exception:
+                    debug_info['engine_used'] = 'pyxlsb'
+                except Exception as e:
+                    debug_info['attempts'].append({'stage': 'pyxlsb (fallback)', 'error': str(e)})
                     _reset_buffer(filepath_or_buffer)
                     try:
                         df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='xlrd', header=None)
-                    except Exception:
+                        debug_info['engine_used'] = 'xlrd'
+                    except Exception as e:
+                        debug_info['attempts'].append({'stage': 'xlrd', 'error': str(e)})
                         _reset_buffer(filepath_or_buffer)
                         try:
                             dfs = pd.read_html(filepath_or_buffer, header=None)
                             if dfs:
                                 df = dfs[0]
-                        except Exception:
-                            pass
+                                debug_info['engine_used'] = 'html'
+                        except Exception as e:
+                            debug_info['attempts'].append({'stage': 'html (fallback)', 'error': str(e)})
 
-        if df is None or df.empty or len(df) < 2:
-            return None, None, None
+        if df is None:
+            return _fail(
+                "Could not read the file with any available engine (pyxlsb / openpyxl / xlrd / HTML). "
+                "See 'attempts' for the specific error from each engine tried."
+            )
+        if df.empty or len(df) < 2:
+            return _fail(f"File was read successfully (engine: {debug_info['engine_used']}) but has too few rows ({len(df)}) to contain a report.")
 
         # Dynamically locate the header row (contains 'TCF', 'VIN', 'DROP', or 'DATE')
         header_row_idx = 0
+        header_found = False
         for r_i in range(min(10, len(df))):
             row_vals_str = [str(x).strip().upper() for x in df.iloc[r_i].values]
             if any('TCF' in x or 'VIN' in x or 'DROP' in x or 'PAINT' in x for x in row_vals_str):
                 header_row_idx = r_i
+                header_found = True
                 break
+        if not header_found:
+            debug_info['attempts'].append({
+                'stage': 'header detection',
+                'error': "No row in the first 10 contained 'TCF'/'VIN'/'DROP'/'PAINT'; defaulted to row 0, which may be wrong."
+            })
 
         header_row = df.iloc[header_row_idx].values
         cols = [str(c).strip() for c in header_row]
@@ -1454,8 +1490,18 @@ def load_shop_wise_report(filepath_or_buffer):
         df_vehicles = pd.DataFrame(simplified_model_rows) if simplified_model_rows else None
         df_ta = pd.DataFrame(ta_rows) if ta_rows else None
 
+        if not totals_dict and df_vehicles is None and df_ta is None:
+            return _fail(
+                f"File was read (engine: {debug_info['engine_used']}) and a header row was located, "
+                "but no totals, model rows, or TA rows could be extracted. The sheet layout may not match "
+                "what the parser expects (e.g. models not recognized in map_tcf_model_name, or shifted columns)."
+            )
+
+        debug_info['success'] = True
+        if return_debug:
+            return totals_dict, df_vehicles, df_ta, debug_info
         return totals_dict, df_vehicles, df_ta
     except Exception as e:
         print(f"Error loading Shop_Wise_Report: {e}")
-        return None, None, None
+        return _fail(f"Unexpected error while parsing: {e}")
 
