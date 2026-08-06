@@ -34,10 +34,8 @@ def _detect_html_content(filepath_or_buffer):
     name = filepath_or_buffer if isinstance(filepath_or_buffer, str) else getattr(filepath_or_buffer, 'name', '')
     ext = os.path.splitext(str(name).lower())[1]
 
-    # Real .xlsx/.xlsb files are binary zip archives and are never HTML, so
-    # only bother sniffing content for extensions that plant systems are
-    # known to mislabel (.xls/.html/.htm), or when we don't know the name.
-    if ext not in ['.xls', '.html', '.htm', '']:
+    # Plant reporting systems (PPC, DPT, etc.) frequently export HTML tables mislabeled as .xls, .xlsx, etc.
+    if ext not in ['.xls', '.xlsx', '.xlsb', '.html', '.htm', '']:
         return False, None
 
     try:
@@ -1304,7 +1302,7 @@ def _reset_buffer(filepath_or_buffer):
 
 def load_shop_wise_report(filepath_or_buffer):
     """
-    Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb or .xlsx) and returns:
+    Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb, .xlsx, .xls, or HTML) and returns:
       - totals_dict: dict of plant total metrics (TCF VIN, TCF2 VIN, TCF DROP, TCF2 DROP, TCF ROLL, TCF2 ROLL, TCF IOK, TCF2 IOK, PAINT, WELD, PBS, T60, T40)
       - df_vehicles: DataFrame of TCF1 & TCF2 model-wise production breakdown with updated brand names
       - df_ta: DataFrame of Transaxle (TA) engine dispatch counts
@@ -1312,43 +1310,80 @@ def load_shop_wise_report(filepath_or_buffer):
     if not filepath_or_buffer:
         return None, None, None
 
+    df = None
     try:
         _reset_buffer(filepath_or_buffer)
-        ext = _get_extension(filepath_or_buffer)
-        if ext == '.xlsb':
-            df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
-        elif ext == '.xls':
+        
+        # 1. HTML detection (common plant system exports disguised as .xls/.xlsx)
+        is_html, html_content = _detect_html_content(filepath_or_buffer)
+        if is_html:
             try:
-                df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='xlrd')
+                dfs = pd.read_html(io.StringIO(html_content))
+                if dfs:
+                    df = dfs[0]
             except Exception:
-                _reset_buffer(filepath_or_buffer)
-                df = pd.read_excel(filepath_or_buffer, sheet_name=0)
-        else:
-            try:
-                df = pd.read_excel(filepath_or_buffer, sheet_name=0)
-            except Exception:
-                _reset_buffer(filepath_or_buffer)
-                df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+                pass
 
-        if df.empty or len(df) < 3:
+        # 2. Try pyxlsb engine if .xlsb extension
+        if df is None:
+            ext = _get_extension(filepath_or_buffer)
+            if ext == '.xlsb':
+                try:
+                    df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+                except Exception:
+                    _reset_buffer(filepath_or_buffer)
+
+        # 3. Standard pandas read_excel fallback chain
+        if df is None:
+            try:
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0)
+            except Exception:
+                _reset_buffer(filepath_or_buffer)
+                try:
+                    df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+                except Exception:
+                    _reset_buffer(filepath_or_buffer)
+                    try:
+                        df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='xlrd')
+                    except Exception:
+                        _reset_buffer(filepath_or_buffer)
+                        try:
+                            dfs = pd.read_html(filepath_or_buffer)
+                            if dfs:
+                                df = dfs[0]
+                        except Exception:
+                            pass
+
+        if df is None or df.empty or len(df) < 2:
             return None, None, None
 
-        header_row = df.iloc[0].values
+        # Dynamically locate the header row (contains 'TCF', 'VIN', 'DROP', or 'DATE')
+        header_row_idx = 0
+        for r_i in range(min(10, len(df))):
+            row_vals_str = [str(x).strip().upper() for x in df.iloc[r_i].values]
+            if any('TCF' in x or 'VIN' in x or 'DROP' in x or 'PAINT' in x for x in row_vals_str):
+                header_row_idx = r_i
+                break
+
+        header_row = df.iloc[header_row_idx].values
         cols = [str(c).strip() for c in header_row]
 
-        totals_row = df.iloc[1].values
+        totals_row_idx = header_row_idx + 1
         totals_dict = {}
-        for col_idx, col_name in enumerate(cols):
-            if col_idx < len(totals_row):
-                val = totals_row[col_idx]
-                try:
-                    totals_dict[col_name] = int(float(str(val).strip()))
-                except Exception:
-                    totals_dict[col_name] = str(val).strip()
+        if totals_row_idx < len(df):
+            totals_row = df.iloc[totals_row_idx].values
+            for col_idx, col_name in enumerate(cols):
+                if col_idx < len(totals_row):
+                    val = totals_row[col_idx]
+                    try:
+                        totals_dict[col_name] = int(float(str(val).strip()))
+                    except Exception:
+                        totals_dict[col_name] = str(val).strip()
 
         model_rows = []
         ta_rows = []
-        for i in range(3, len(df)):
+        data_start_idx = totals_row_idx + 1
+        for i in range(data_start_idx, len(df)):
             row_vals = df.iloc[i].values
             raw_model = str(row_vals[0]).strip()
             if not raw_model or raw_model.lower() in ['nan', 'none', 'total', 'model']:

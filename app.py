@@ -719,7 +719,9 @@ with config_expander:
                 replaced_any = False
                 upload_ts = format_ist_now("%d-%m-%Y %I:%M %p")
                 for category, uploaded_file in uploaded_mappings.items():
-                    st.session_state[f"buffer_{category}"] = uploaded_file
+                    mem_buf = io.BytesIO(uploaded_file.getvalue())
+                    mem_buf.name = uploaded_file.name
+                    st.session_state[f"buffer_{category}"] = mem_buf
                     st.session_state[f"upload_time_{category}"] = upload_ts
                     try:
                         dl.save_metadata(f"upload_time_{category}", upload_ts)
