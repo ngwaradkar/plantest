@@ -696,11 +696,18 @@ def detect_and_classify_files(directory_path):
                 classifications[cat] = p
             else:
                 existing = classifications[cat]
-                # Prefer Float reports/ and root over TEST folder
-                if 'test' in existing.lower() and 'test' not in p.lower():
-                    classifications[cat] = p
-                elif 'float reports' in p.lower() and 'float reports' not in existing.lower():
-                    classifications[cat] = p
+                # Prefer Float reports/ and root over TEST folder, and prefer newer modification time
+                try:
+                    p_test = 'test' in p.lower()
+                    e_test = 'test' in existing.lower()
+                    if e_test and not p_test:
+                        classifications[cat] = p
+                    elif not e_test and p_test:
+                        pass
+                    elif os.path.getmtime(p) > os.path.getmtime(existing):
+                        classifications[cat] = p
+                except Exception:
+                    pass
 
         if 'bom' in name_lower:
             set_cat('BOM', path)
@@ -1280,6 +1287,21 @@ def map_tcf_model_name(raw_name):
     return None
 
 
+def _get_extension(filepath_or_buffer):
+    if isinstance(filepath_or_buffer, str):
+        return os.path.splitext(filepath_or_buffer.lower())[1]
+    elif hasattr(filepath_or_buffer, 'name'):
+        return os.path.splitext(str(filepath_or_buffer.name).lower())[1]
+    return ''
+
+def _reset_buffer(filepath_or_buffer):
+    if hasattr(filepath_or_buffer, 'seek'):
+        try:
+            filepath_or_buffer.seek(0)
+        except Exception:
+            pass
+
+
 def load_shop_wise_report(filepath_or_buffer):
     """
     Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb or .xlsx) and returns:
@@ -1291,14 +1313,22 @@ def load_shop_wise_report(filepath_or_buffer):
         return None, None, None
 
     try:
-        if isinstance(filepath_or_buffer, str):
-            ext = os.path.splitext(filepath_or_buffer.lower())[1]
-            if ext == '.xlsb':
-                df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
-            else:
+        _reset_buffer(filepath_or_buffer)
+        ext = _get_extension(filepath_or_buffer)
+        if ext == '.xlsb':
+            df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+        elif ext == '.xls':
+            try:
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='xlrd')
+            except Exception:
+                _reset_buffer(filepath_or_buffer)
                 df = pd.read_excel(filepath_or_buffer, sheet_name=0)
         else:
-            df = pd.read_excel(filepath_or_buffer, sheet_name=0)
+            try:
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0)
+            except Exception:
+                _reset_buffer(filepath_or_buffer)
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
 
         if df.empty or len(df) < 3:
             return None, None, None
