@@ -759,7 +759,7 @@ with config_expander:
                 st.session_state.last_processed_upload_ids = uploaded_ids
                 if replaced_any:
                     detected_files = dl.detect_and_classify_files(active_dir)
-                    st.session_state.run_report = True
+                    st.session_state.run_report = False
                     st.rerun()
             
             st.markdown("##### Loaded Files Status")
