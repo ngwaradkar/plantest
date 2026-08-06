@@ -1337,7 +1337,7 @@ def load_shop_wise_report(filepath_or_buffer):
         is_html, html_content = _detect_html_content(filepath_or_buffer)
         if is_html:
             try:
-                dfs = pd.read_html(io.StringIO(html_content))
+                dfs = pd.read_html(io.StringIO(html_content), header=None)
                 if dfs:
                     df = dfs[0]
             except Exception:
@@ -1348,26 +1348,26 @@ def load_shop_wise_report(filepath_or_buffer):
             ext = _get_extension(filepath_or_buffer)
             if ext == '.xlsb':
                 try:
-                    df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+                    df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb', header=None)
                 except Exception:
                     _reset_buffer(filepath_or_buffer)
 
         # 3. Standard pandas read_excel fallback chain
         if df is None:
             try:
-                df = pd.read_excel(filepath_or_buffer, sheet_name=0)
+                df = pd.read_excel(filepath_or_buffer, sheet_name=0, header=None)
             except Exception:
                 _reset_buffer(filepath_or_buffer)
                 try:
-                    df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb')
+                    df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='pyxlsb', header=None)
                 except Exception:
                     _reset_buffer(filepath_or_buffer)
                     try:
-                        df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='xlrd')
+                        df = pd.read_excel(filepath_or_buffer, sheet_name=0, engine='xlrd', header=None)
                     except Exception:
                         _reset_buffer(filepath_or_buffer)
                         try:
-                            dfs = pd.read_html(filepath_or_buffer)
+                            dfs = pd.read_html(filepath_or_buffer, header=None)
                             if dfs:
                                 df = dfs[0]
                         except Exception:
