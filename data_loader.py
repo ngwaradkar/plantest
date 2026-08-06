@@ -625,14 +625,17 @@ def classify_files(uploaded_files):
     
     for f in uploaded_files:
         name = f.name.lower()
-        if 'bom' in name:
+        # Top priority: Shop_Wise report
+        if name.startswith('shop_wise') or name.startswith('shopwise') or name.startswith('shop-wise') or 'shop_wise' in name or 'shopwise' in name or 'shop-wise' in name or ('shop' in name and 'report' in name):
+            classifications['SHOP_WISE_REPORT'] = f
+        elif 'bom' in name:
             classifications['BOM'] = f
         elif 'float' in name:
             if 'paint' in name:
                 classifications['FLOAT_PAINT_SUMMARY'] = f
             else:
                 classifications['FLOAT_REPORT'] = f
-        elif any(k in name for k in ['vgl', 'vehicle_generation', 'generation_list', 'dpt-plan', 'dpt_plan', 'vin_generation', 'generation_report']):
+        elif any(k in name for k in ['vgl', 'vehicle_generation', 'generation_list', 'dpt-plan', 'dpt_plan', 'vin_generation']):
             if 'tcf2' in name or 'tcf_2' in name:
                 classifications['TCF2_VGL'] = f
             else:
@@ -649,10 +652,18 @@ def classify_files(uploaded_files):
                 classifications['TCF2_WIRING_STOCK'] = f
             else:
                 classifications['TCF1_WIRING_STOCK'] = f
-        elif any(k in name for k in ['shop_wise', 'shopwise', 'shop_report', 'plant_production', 'production_summary', 'plant_summary', 'shop_summary']) or ('shop' in name and ('report' in name or 'summary' in name or 'plant' in name)) or ('production' in name and 'summary' in name):
-            classifications['SHOP_WISE_REPORT'] = f
                 
     return classifications
+
+def _extract_date_tuple(filename):
+    """Extracts (year, month, day) from filename like Shop_Wise_Report_08_05_2026."""
+    m = re.search(r'(\d{2})[_\-](\d{2})[_\-](\d{4})', filename)
+    if m:
+        try:
+            return (int(m.group(3)), int(m.group(1)), int(m.group(2)))
+        except Exception:
+            pass
+    return (0, 0, 0)
 
 def detect_and_classify_files(directory_path):
     """
@@ -694,27 +705,37 @@ def detect_and_classify_files(directory_path):
                 classifications[cat] = p
             else:
                 existing = classifications[cat]
-                # Prefer Float reports/ and root over TEST folder, and prefer newer modification time
                 try:
+                    p_name = os.path.basename(p)
+                    e_name = os.path.basename(existing)
+                    p_date = _extract_date_tuple(p_name)
+                    e_date = _extract_date_tuple(e_name)
+                    
                     p_test = 'test' in p.lower()
                     e_test = 'test' in existing.lower()
+                    
                     if e_test and not p_test:
                         classifications[cat] = p
                     elif not e_test and p_test:
                         pass
-                    elif os.path.getmtime(p) > os.path.getmtime(existing):
+                    elif p_date > e_date:
+                        classifications[cat] = p
+                    elif p_date == e_date and os.path.getmtime(p) > os.path.getmtime(existing):
                         classifications[cat] = p
                 except Exception:
                     pass
 
-        if 'bom' in name_lower:
+        # Top priority: Shop_Wise report
+        if name_lower.startswith('shop_wise') or name_lower.startswith('shopwise') or name_lower.startswith('shop-wise') or 'shop_wise' in name_lower or 'shopwise' in name_lower or 'shop-wise' in name_lower or ('shop' in name_lower and 'report' in name_lower):
+            set_cat('SHOP_WISE_REPORT', path)
+        elif 'bom' in name_lower:
             set_cat('BOM', path)
         elif 'float' in name_lower:
             if 'paint' in name_lower:
                 set_cat('FLOAT_PAINT_SUMMARY', path)
             else:
                 set_cat('FLOAT_REPORT', path)
-        elif any(k in name_lower for k in ['vgl', 'vehicle_generation', 'generation_list', 'dpt-plan', 'dpt_plan', 'vin_generation', 'generation_report']):
+        elif any(k in name_lower for k in ['vgl', 'vehicle_generation', 'generation_list', 'dpt-plan', 'dpt_plan', 'vin_generation']):
             if 'tcf2' in name_lower or 'tcf_2' in name_lower:
                 set_cat('TCF2_VGL', path)
             else:
@@ -731,8 +752,6 @@ def detect_and_classify_files(directory_path):
                 set_cat('TCF2_WIRING_STOCK', path)
             else:
                 set_cat('TCF1_WIRING_STOCK', path)
-        elif any(k in name_lower for k in ['shop_wise', 'shopwise', 'shop_report', 'plant_production', 'production_summary', 'plant_summary', 'shop_summary']) or ('shop' in name_lower and ('report' in name_lower or 'summary' in name_lower or 'plant' in name_lower)) or ('production' in name_lower and 'summary' in name_lower):
-            set_cat('SHOP_WISE_REPORT', path)
                 
     return classifications
 
