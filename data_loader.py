@@ -52,6 +52,15 @@ def _detect_html_content(filepath_or_buffer):
 
     first_chars = content[:500].lower()
     if '<html' in first_chars or '<style' in first_chars or '<table' in first_chars:
+        # Some plant systems (confirmed on Shop Wise Report exports) stamp every
+        # <td> with rowspan="0" colspan="0" as generator boilerplate. Per the
+        # HTML5 spec, rowspan/colspan="0" means "span to the end of the table/row" --
+        # so parsers (incl. pandas.read_html) collapse every row after the first
+        # into NaN, since row 0's cells are treated as spanning the whole table.
+        # These files don't actually want spanning; normalize to "1" so each
+        # cell is read as its own row/column.
+        content = re.sub(r'(rowspan|colspan)\s*=\s*"0"', r'\1="1"', content, flags=re.IGNORECASE)
+        content = re.sub(r"(rowspan|colspan)\s*=\s*'0'", r"\1='1'", content, flags=re.IGNORECASE)
         return True, content
     return False, None
 
@@ -1495,6 +1504,21 @@ def load_shop_wise_report(filepath_or_buffer, return_debug=False):
                 f"File was read (engine: {debug_info['engine_used']}) and a header row was located, "
                 "but no totals, model rows, or TA rows could be extracted. The sheet layout may not match "
                 "what the parser expects (e.g. models not recognized in map_tcf_model_name, or shifted columns)."
+            )
+
+        # Guard against the header-detection landing on the wrong row: if it did,
+        # totals_dict can still come out non-empty, just full of the wrong keys
+        # (e.g. metadata labels like 'FROM DATE : ...' instead of 'TCF VIN').
+        # That used to look like success even though every KPI silently reads as 0.
+        core_keys = {'TCF VIN', 'TCF2 VIN', 'TCF DROP', 'TCF2 DROP', 'PAINT'}
+        matched_core_keys = core_keys & set(totals_dict.keys())
+        if totals_dict and not matched_core_keys:
+            return _fail(
+                f"File was read (engine: {debug_info['engine_used']}) but the header row detected at "
+                f"index {header_row_idx} doesn't look like the real data header -- extracted keys were "
+                f"{list(totals_dict.keys())} instead of expected keys like 'TCF VIN'/'TCF2 VIN'/'PAINT'. "
+                "The real header row may sit outside the first 10 rows scanned, or an earlier row is "
+                "being mistaken for it."
             )
 
         debug_info['success'] = True
