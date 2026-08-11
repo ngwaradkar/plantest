@@ -691,7 +691,7 @@ default_core_available = (db_bom_exists or default_bom_path is not None) and def
 
 config_expander = st.expander(
     "⚙️ Control Panel: File Uploads & Engine Starting Stocks (Click to Expand/Collapse)",
-    expanded=not default_core_available
+    expanded=not default_core_available and not st.session_state.get('run_report', False)
 )
 
 with config_expander:
@@ -1563,6 +1563,8 @@ try:
         ready_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
         blocked_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf2_alloc_df.empty else 0
 
+    st.session_state['last_generated_at'] = datetime.datetime.now()
+
 except Exception as e:
     st.error(f"❌ Error while running calculations: {e}")
     st.info("Please verify that the uploaded files match the required structure and columns.")
@@ -1656,8 +1658,24 @@ def render_total_float_details_view(float_df, default_line="All"):
     st.markdown("#### 📋 Float Cab Details")
     display_cols = ['BIW NUMBER', 'VIN', 'VEHICLE CODE', 'PRODUCT', 'MODEL', 'COLOUR', 'SHOP', 'Status', 'Blocking Reason', 'Cab location', 'Stage', 'HOLD BY', 'REASONS S', 'BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT']
     available_cols = [c for c in display_cols if c in df_search.columns]
-    
-    st.dataframe(df_search[available_cols], use_container_width=True, hide_index=True)
+
+    def _style_status_cell(val):
+        val_str = str(val)
+        if 'Ready' in val_str or '✅' in val_str:
+            return 'background-color: rgba(16, 185, 129, 0.18); color: #059669; font-weight: 600;'
+        elif 'Blocked' in val_str or '🚫' in val_str:
+            return 'background-color: rgba(239, 68, 68, 0.18); color: #DC2626; font-weight: 600;'
+        elif 'Hold' in val_str or '⚠️' in val_str:
+            return 'background-color: rgba(245, 158, 11, 0.18); color: #B45309; font-weight: 600;'
+        return ''
+
+    display_df = df_search[available_cols]
+    if 'Status' in available_cols:
+        # Styler.applymap was removed in pandas 3.0 -- use .map instead.
+        styled_display_df = display_df.style.map(_style_status_cell, subset=['Status'])
+        st.dataframe(styled_display_df, use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
     
     # Export options with colorful OpenPyXL styling and Ready to TCF Short VC Pivot + Blocked Reason Pivot
     import io
@@ -2824,11 +2842,35 @@ TCF1: {tcf1_pbs_detail_str}
 
 TCF2: {tcf2_pbs_detail_str}"""
 
+        # ----------------- QUICK ACTIONS: SEND BOTH SCHEDULED REPORTS -----------------
+        # Moved to the top so the most common one-click action doesn't require
+        # scrolling past the full custom-dispatcher form to find it.
+        with st.container(border=True):
+            qa_col1, qa_col2 = st.columns([3, 1.3])
+            with qa_col1:
+                st.markdown("##### ⚡ Quick Action")
+                st.caption("Send the TCF1 & TCF2 PPC Report and the Nova Status Report together, in one tap.")
+            with qa_col2:
+                if st.button("🚀 Send BOTH Reports Now", type="secondary", use_container_width=True, key="send_both_tg_reports_btn"):
+                    ok1, res_msg1 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_1_text)
+                    ok2, res_msg2 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_2_text)
+                    if ok1 and ok2:
+                        st.toast("🚀 Both reports successfully sent to Telegram!", icon="🚀")
+                        st.success("✅ Both reports (TCF1 & TCF2 PPC Report & Nova Status Report) dispatched successfully!")
+                    else:
+                        if not ok1:
+                            st.error(f"Report 1 Error: {res_msg1}")
+                        if not ok2:
+                            st.error(f"Report 2 Error: {res_msg2}")
+
+        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+        st.caption("📅 **Scheduled Report Templates** (first 3 tabs) — preview and send one at a time · 💬 **Manual Dispatcher** (last tab) — free-text, screenshots, or file attachments")
+
         # Tabbed preview & dispatch options
         report_tab1, report_tab2, report_tab3, report_tab4 = st.tabs([
-            "📊 Report 1: TCF1 & TCF2 PPC Report",
-            "⚡ Report 2: Punch EV (Nova) Status Report",
-            "🏭 Report 3: TCF Dropping vs. Paint Lifting Status",
+            "📅 Report 1: TCF1 & TCF2 PPC Report",
+            "📅 Report 2: Punch EV (Nova) Status Report",
+            "📅 Report 3: TCF Dropping vs. Paint Lifting Status",
             "💬 Custom Telegram Dispatcher"
         ])
 
@@ -2975,18 +3017,6 @@ TCF2: {tcf2_pbs_detail_str}"""
                             st.error(f"❌ {e_msg}")
 
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-        if st.button("⚡🚀 Send BOTH Reports to Telegram Now", type="secondary", use_container_width=True, key="send_both_tg_reports_btn"):
-            ok1, res_msg1 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_1_text)
-            ok2, res_msg2 = dl.send_telegram_message(st.session_state.telegram_token, st.session_state.telegram_chat_id, tg_report_2_text)
-            if ok1 and ok2:
-                st.toast("🚀 Both reports successfully sent to Telegram!", icon="🚀")
-                st.success("✅ Both reports (TCF1 & TCF2 PPC Report & Nova Status Report) dispatched successfully!")
-            else:
-                if not ok1:
-                    st.error(f"Report 1 Error: {res_msg1}")
-                if not ok2:
-                    st.error(f"Report 2 Error: {res_msg2}")
-
 
 # ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
 with tcf_tabs[0]:
@@ -3028,15 +3058,37 @@ with tcf_tabs[0]:
         st.markdown("### 🏭 Shop-Wise Plant Production Summary (Daily Report)")
         if shop_totals:
             rep_date = shop_totals.get('Date', shop_totals.get('REPORT DATE', '03/08/2026'))
-            st.caption(f"📅 **Report Date**: {rep_date}")
-            
-            s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5, s_kpi6 = st.columns(6)
-            s_kpi1.metric("TCF1 VIN Count", f"{shop_totals.get('TCF VIN', 0)} cabs")
-            s_kpi2.metric("TCF2 VIN Count", f"{shop_totals.get('TCF2 VIN', 0)} cabs")
-            s_kpi3.metric("Total TCF Dropping", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
-            s_kpi4.metric("Paint Lifting", f"{shop_totals.get('PAINT', 0)} cabs")
-            s_kpi5.metric("T60 Count", f"{shop_totals.get('T60', 0)} cabs")
-            s_kpi6.metric("T40 Count", f"{shop_totals.get('T40', 0)} cabs")
+            cap_col1, cap_col2 = st.columns([2, 2])
+            with cap_col1:
+                st.caption(f"📅 **Report Date**: {rep_date}")
+            with cap_col2:
+                last_gen = st.session_state.get('last_generated_at')
+                if last_gen:
+                    st.caption(f"🕒 **Last Generated**: {last_gen.strftime('%d-%b-%Y %I:%M %p')}")
+
+            # Sticky KPI bar: stays pinned to the top while scrolling through the
+            # rest of the (often long) summary report below.
+            st.markdown("""
+                <style>
+                .st-key-sticky_kpi_bar {
+                    position: sticky;
+                    top: 2.75rem;
+                    z-index: 998;
+                    background-color: var(--background-color, #0e1117);
+                    padding: 0.5rem 0 0.75rem 0;
+                    border-bottom: 1px solid rgba(128,128,128,0.25);
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            with st.container(key="sticky_kpi_bar"):
+                s_kpi1, s_kpi2, s_kpi3, s_kpi4, s_kpi5, s_kpi6 = st.columns(6)
+                s_kpi1.metric("TCF1 VIN Count", f"{shop_totals.get('TCF VIN', 0)} cabs")
+                s_kpi2.metric("TCF2 VIN Count", f"{shop_totals.get('TCF2 VIN', 0)} cabs")
+                s_kpi3.metric("Total TCF Dropping", f"{int(shop_totals.get('TCF DROP', 0)) + int(shop_totals.get('TCF2 DROP', 0))} cabs")
+                s_kpi4.metric("Paint Lifting", f"{shop_totals.get('PAINT', 0)} cabs")
+                s_kpi5.metric("T60 Count", f"{shop_totals.get('T60', 0)} cabs")
+                s_kpi6.metric("T40 Count", f"{shop_totals.get('T40', 0)} cabs")
             
         if shop_vehicles_df is not None and not shop_vehicles_df.empty:
             st.markdown("#### 🚗 Model-Wise Production Matrix (TCF1 & TCF2 Breakdown)")

@@ -6,6 +6,27 @@ import os
 import openpyxl
 import pyxlsb
 import sqlite3
+import streamlit as st
+
+def _hash_upload_buffer(b):
+    """
+    Custom hash for st.cache_data: our upload buffers are io.BytesIO objects
+    with a .name attribute set (to mimic Streamlit's UploadedFile). Streamlit's
+    default hasher treats anything with a .name as a real file handle and
+    calls os.path.getmtime() on it -- which crashes, since these are in-memory
+    buffers, not files that exist at that path. Hash by actual content instead.
+    """
+    pos = b.tell()
+    b.seek(0)
+    data = b.read()
+    b.seek(pos)
+    return data
+
+# Cache TTL for parsed-file results: long enough that clicking around the
+# dashboard (Telegram send, tab switches, filters) doesn't re-parse the same
+# Excel/xlsb file from scratch every single rerun, short enough to self-heal
+# if a cache entry is ever wrong.
+_CACHE_TTL_SECONDS = 1800
 
 def clean_part_number(val):
     if pd.isna(val):
@@ -64,6 +85,7 @@ def _detect_html_content(filepath_or_buffer):
         return True, content
     return False, None
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_bom(filepath_or_buffer):
     """
     Loads BOM details.xlsx and returns a cleaned DataFrame.
@@ -105,6 +127,7 @@ def load_bom(filepath_or_buffer):
     df.drop_duplicates(subset=['Short Vehicle Code'], keep='first', inplace=True)
     return df
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_float_report(filepath_or_buffer):
     """
     Loads PPC Float Report (which can be .xlsb or .xls disguised HTML) and returns a cleaned DataFrame.
@@ -210,6 +233,7 @@ def load_float_report(filepath_or_buffer):
     
     return df_dedup
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_paint_summary_report(filepath_or_buffer):
     """
     Loads PPC Float Report Paint Summary (HTML or Excel format) and returns aggregated model stage totals.
@@ -329,6 +353,7 @@ def load_paint_summary_report(filepath_or_buffer):
 
     return model_totals
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_vgl(filepath_or_buffer):
     """
     Loads Vehicle Generation List / DPT Plan VIN Generation Report (.xls, .xlsx, .xlsb, HTML).
@@ -544,6 +569,7 @@ def load_vgl(filepath_or_buffer):
     
     return df
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_stock_grouped(filepath_or_buffer, sheet_name, vc_col_idx, part_col_idx, qty_col_idx, skip_rows=2):
     """
     Generic grouped-row stock parser.
@@ -1020,6 +1046,7 @@ def load_metadata(key, default=None):
     finally:
         conn.close()
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_paint_summary_by_vc(filepath_or_buffer):
     """
     Loads PPC Float Report Paint Summary and returns stage float counts aggregated by Short Vehicle Code (SHORT VC).
@@ -1321,6 +1348,7 @@ def extract_trim_from_sales_desc(sales_desc, model_name=""):
     return d + fuel
 
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_all_models_catalog(filepath):
     """Loads All models.xlsx spreadsheet and returns VC mapping dicts for Sales Description and Trim."""
     vc_to_desc = {}
@@ -1396,6 +1424,7 @@ def _reset_buffer(filepath_or_buffer):
             pass
 
 
+@st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_shop_wise_report(filepath_or_buffer, return_debug=False):
     """
     Loads Shop Wise Production Summary Report (Shop_Wise_Report_*.xlsb, .xlsx, .xls, or HTML) and returns:
