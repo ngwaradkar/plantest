@@ -493,3 +493,74 @@ def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
                 })
                 
     return pd.DataFrame(report_rows)
+
+
+def find_missing_bom_vcs(df_float, bom):
+    """
+    Scans every cab currently in the float report and flags Short Vehicle Codes
+    that either have no BOM row at all, or have a BOM row with one or more part
+    numbers blank/'0'. This is the check the homepage alert/BOM-entry form is
+    built on -- a cab whose BOM can't be resolved should never silently count
+    as "Ready for TCF"; it should show up here instead.
+
+    - df_float: Float report DataFrame with a 'VEHICLE CODE' (or 'VC') column
+    - bom: Master BOM DataFrame (may be None if no BOM has been loaded yet)
+
+    Returns a DataFrame with columns: Short VC, Status, Missing Parts, Cab Count,
+    Sample Product, Sample VIN -- one row per distinct Short VC needing attention.
+    Empty DataFrame means every cab in the float report has a complete BOM.
+    """
+    if df_float is None or df_float.empty:
+        return pd.DataFrame()
+    if bom is None:
+        # No BOM loaded at all is a separate, already-surfaced condition
+        # (Control Panel shows BOM as missing); don't duplicate that here.
+        return pd.DataFrame()
+
+    bom_lookup = {}
+    for _, r in bom.iterrows():
+        bom_lookup[str(r.get('Short Vehicle Code')).strip()] = r
+
+    def _blank(v):
+        if v is None:
+            return True
+        s = str(v).strip()
+        return s == '' or s in ('0', 'None', 'nan')
+
+    found = {}
+    for _, row in df_float.iterrows():
+        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
+        if pd.isna(full_vc) or not str(full_vc).strip():
+            continue
+        short_vc = str(full_vc).strip()[:9]
+
+        bom_entry = bom_lookup.get(short_vc)
+        if bom_entry is None:
+            status = '❌ Missing'
+            missing_parts = ['Engine/Battery', 'Cockpit', 'Front Wiring']
+        else:
+            missing_parts = []
+            if _blank(bom_entry.get('Engine')):
+                missing_parts.append('Engine/Battery')
+            if _blank(bom_entry.get('Cockpit')):
+                missing_parts.append('Cockpit')
+            if _blank(bom_entry.get('Front Wiring')):
+                missing_parts.append('Front Wiring')
+            if not missing_parts:
+                continue
+            status = '⚠️ Incomplete'
+
+        if short_vc not in found:
+            found[short_vc] = {
+                'Short VC': short_vc,
+                'Status': status,
+                'Missing Parts': ', '.join(missing_parts),
+                'Cab Count': 0,
+                'Sample Product': row.get('PRODUCT') if pd.notna(row.get('PRODUCT')) else '',
+                'Sample VIN': row.get('VIN') if pd.notna(row.get('VIN')) else ''
+            }
+        found[short_vc]['Cab Count'] += 1
+
+    if not found:
+        return pd.DataFrame()
+    return pd.DataFrame(list(found.values())).sort_values('Cab Count', ascending=False).reset_index(drop=True)

@@ -767,7 +767,15 @@ def detect_and_classify_files(directory_path):
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clear_to_build.db")
 
 def init_db():
-    """Initializes the database and table if they do not exist."""
+    """Initializes the database and table if they do not exist.
+
+    Also self-heals a pre-existing bom_details table that's missing the
+    short_vehicle_code PRIMARY KEY constraint (a table in that state can
+    result from the old save_bom_to_db(), which used to_sql(if_exists='replace')
+    and silently dropped the constraint on every full BOM re-upload). Without
+    this repair, save_single_bom_entry()'s ON CONFLICT upsert would fail on
+    any database created before this fix.
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -779,18 +787,78 @@ def init_db():
         )
     """)
     conn.commit()
+
+    # Check whether short_vehicle_code is actually a PRIMARY KEY on the table
+    # that exists right now (it may predate this schema and lack it).
+    cursor.execute("PRAGMA table_info(bom_details)")
+    cols_info = cursor.fetchall()  # (cid, name, type, notnull, dflt_value, pk)
+    has_pk = any(c[1] == 'short_vehicle_code' and c[5] > 0 for c in cols_info)
+
+    if not has_pk:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bom_details_fixed (
+                short_vehicle_code TEXT PRIMARY KEY,
+                front_wiring TEXT,
+                cockpit TEXT,
+                engine TEXT
+            )
+        """)
+        # Keep the last row per short_vehicle_code if the broken table has duplicates
+        cursor.execute("""
+            INSERT OR REPLACE INTO bom_details_fixed (short_vehicle_code, front_wiring, cockpit, engine)
+            SELECT short_vehicle_code, front_wiring, cockpit, engine FROM bom_details
+        """)
+        cursor.execute("DROP TABLE bom_details")
+        cursor.execute("ALTER TABLE bom_details_fixed RENAME TO bom_details")
+        conn.commit()
+
     conn.close()
 
 def save_bom_to_db(df):
-    """Overwrites the database table with the provided BOM DataFrame."""
+    """Overwrites the database table with the provided BOM DataFrame.
+
+    Uses DELETE + INSERT into the existing table (rather than pandas'
+    to_sql(if_exists='replace'), which drops and recreates the table using a
+    default schema and silently discards the short_vehicle_code PRIMARY KEY
+    constraint defined in init_db() -- that constraint is required for
+    save_single_bom_entry()'s upsert to work).
+    """
     if df is None or df.empty:
         return
     init_db()
     conn = sqlite3.connect(DB_PATH)
-    # Convert dataframe to exactly match the database columns
     db_df = df.copy()
     db_df.columns = ['short_vehicle_code', 'front_wiring', 'cockpit', 'engine']
-    db_df.to_sql('bom_details', conn, if_exists='replace', index=False)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM bom_details")
+    db_df.to_sql('bom_details', conn, if_exists='append', index=False)
+    conn.commit()
+    conn.close()
+
+def save_single_bom_entry(short_vehicle_code, front_wiring, cockpit, engine):
+    """
+    Upserts one BOM row (by Short Vehicle Code) into the database, without
+    touching any other rows. Used by the homepage 'missing BOM' entry form so
+    filling in one short VC never risks wiping the rest of the BOM table
+    (unlike save_bom_to_db, which replaces the whole table).
+    """
+    short_vehicle_code = str(short_vehicle_code).strip()
+    if not short_vehicle_code:
+        raise ValueError("Short Vehicle Code is required.")
+    front_wiring = clean_part_number(front_wiring)
+    cockpit = clean_part_number(cockpit)
+    engine = clean_part_number(engine)
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bom_details (short_vehicle_code, front_wiring, cockpit, engine)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(short_vehicle_code) DO UPDATE SET
+            front_wiring = excluded.front_wiring,
+            cockpit = excluded.cockpit,
+            engine = excluded.engine
+    """, (short_vehicle_code, front_wiring, cockpit, engine))
     conn.commit()
     conn.close()
 

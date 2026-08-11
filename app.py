@@ -1483,6 +1483,11 @@ try:
             float_stages_df = pd.DataFrame()
             shortage_report_df = pd.DataFrame()
 
+        # Scan every cab in the float for a missing/incomplete BOM entry, so cabs
+        # that can't be matched to a BOM row never silently pass through as
+        # "Ready for TCF" -- surfaced as an alert + quick-entry form on the homepage.
+        missing_bom_df = ae.find_missing_bom_vcs(float_df, bom_df)
+
         # Build temp_float_df with stage, model, and engine mapping for all downstream views
         def get_summary_product_to_model(prod_name):
             prod = str(prod_name).strip().upper()
@@ -2985,6 +2990,39 @@ TCF2: {tcf2_pbs_detail_str}"""
 
 # ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
 with tcf_tabs[0]:
+    # --- SECTION -1: BOM COMPLETENESS ALERT & QUICK-ENTRY ---
+    if 'missing_bom_df' in locals() and not missing_bom_df.empty:
+        affected_cabs = int(missing_bom_df['Cab Count'].sum())
+        st.error(
+            f"🚨 **BOM not available for {len(missing_bom_df)} Short Vehicle Code(s)** "
+            f"({affected_cabs} cab(s) affected). These cabs may be miscounted as Ready-to-TCF "
+            "with blank/NaN parts until BOM is entered below."
+        )
+        with st.expander(f"⚠️ Fix Missing/Incomplete BOM — {len(missing_bom_df)} Short VC(s)", expanded=True):
+            st.dataframe(missing_bom_df, use_container_width=True, hide_index=True)
+            st.markdown("###### ➕ Enter BOM for a Short VC")
+            with st.form("missing_bom_entry_form", clear_on_submit=True):
+                sel_vc = st.selectbox("Short Vehicle Code", options=missing_bom_df['Short VC'].tolist())
+                fb1, fb2, fb3 = st.columns(3)
+                with fb1:
+                    in_engine = st.text_input("Engine / Battery Part No.")
+                with fb2:
+                    in_cockpit = st.text_input("Cockpit Part No.")
+                with fb3:
+                    in_wiring = st.text_input("Front Wiring Part No.")
+                submitted = st.form_submit_button("💾 Save BOM Entry")
+                if submitted:
+                    if not (in_engine.strip() or in_cockpit.strip() or in_wiring.strip()):
+                        st.warning("Enter at least one part number before saving.")
+                    else:
+                        try:
+                            dl.save_single_bom_entry(sel_vc, in_wiring, in_cockpit, in_engine)
+                            st.success(f"Saved BOM for {sel_vc} to the database. Refreshing report...")
+                            st.session_state.run_report = True
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not save BOM entry: {e}")
+
     # --- SECTION 0: SHOP-WISE PLANT PRODUCTION SUMMARY ---
     if shop_totals is not None or shop_vehicles_df is not None:
         st.markdown("### 🏭 Shop-Wise Plant Production Summary (Daily Report)")
@@ -4405,5 +4443,10 @@ with tcf_tabs[0]:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_cockpit_wiring_all_parts"
             )
+
+        # --- FINAL REMARK: BOM completeness check result ---
+        st.markdown("---")
+        if 'missing_bom_df' in locals() and missing_bom_df.empty and bom_df is not None and not bom_df.empty:
+            st.success("✅ All BOM data checked — no error found. Every Short VC in the current float has a complete BOM match.")
     else:
         st.info("Please load Paint Float data in the Control Panel to view the summary report.")
