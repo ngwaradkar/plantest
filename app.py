@@ -380,15 +380,111 @@ st.markdown(f"""
         border-radius: 12px !important;
         background-color: var(--bg-secondary) !important;
     }}
+
+    /* Status pulse animation for the header "live" indicator */
+    @keyframes statusPulse {{
+        0%, 100% {{ opacity: 1; }}
+        50% {{ opacity: 0.45; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+        * {{ animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }}
+    }}
+
+    /* Notification cards: st.success / st.warning / st.error / st.info */
+    div[data-testid="stAlert"] {{
+        border-radius: 12px !important;
+        border: 1px solid var(--border-color) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
+        background-color: var(--card-bg) !important;
+    }}
+    div[data-testid="stAlertContentSuccess"] {{
+        background-color: var(--card-ready-bg) !important;
+        color: var(--card-ready-text) !important;
+        border-left: 4px solid var(--success-color) !important;
+        border-radius: 10px !important;
+    }}
+    div[data-testid="stAlertContentError"] {{
+        background-color: var(--card-blocked-bg) !important;
+        color: var(--card-blocked-text) !important;
+        border-left: 4px solid var(--danger-color) !important;
+        border-radius: 10px !important;
+    }}
+    div[data-testid="stAlertContentWarning"] {{
+        border-left: 4px solid var(--warning-color) !important;
+        border-radius: 10px !important;
+    }}
+    div[data-testid="stAlertContentInfo"] {{
+        border-left: 4px solid var(--accent-color) !important;
+        border-radius: 10px !important;
+    }}
+    div[data-testid="stAlert"] p, div[data-testid="stAlert"] span {{
+        font-weight: 500 !important;
+    }}
+
+    /* Toast notifications */
+    div[data-testid="stToast"] {{
+        background-color: var(--card-bg) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-color) !important;
+        border-left: 4px solid var(--accent-color) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12) !important;
+    }}
+
+    /* Spinner text and ring */
+    div[data-testid="stSpinner"] > div {{
+        color: var(--text-secondary) !important;
+        font-weight: 500 !important;
+    }}
+
+    /* Custom scrollbar for a cleaner, premium feel */
+    ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+    ::-webkit-scrollbar-track {{ background: transparent; }}
+    ::-webkit-scrollbar-thumb {{
+        background-color: var(--border-color) !important;
+        border-radius: 8px !important;
+    }}
+    ::-webkit-scrollbar-thumb:hover {{ background-color: var(--accent-color) !important; }}
+
+    /* Download button parity with secondary buttons */
+    div[data-testid="stDownloadButton"] button {{
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+    }}
+
+    /* Responsive tweaks for tablet / mobile */
+    @media (max-width: 900px) {{
+        .main .block-container {{
+            padding: 1.25rem 1rem !important;
+        }}
+        div[data-testid="stMetric"] {{
+            padding: 0.85rem 1rem !important;
+        }}
+        h1 {{ font-size: 1.6rem !important; }}
+        h2 {{ font-size: 1.35rem !important; }}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # Render the Title Card
 with col_title_card:
-    st.markdown("""
+    _last_gen = st.session_state.get('last_generated_at')
+    if _last_gen is not None:
+        _status_text = f"Live &middot; Updated {_last_gen.strftime('%I:%M %p')}"
+    else:
+        _status_text = "System Online"
+    st.markdown(f"""
     <div style="background: linear-gradient(135deg, var(--accent-color) 0%, #06B6D4 100%); padding: 1.8rem 2.2rem; border-radius: 16px; margin-bottom: 2rem; color: white; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);">
-        <h1 style="color: white !important; font-weight: 850; margin: 0; font-size: 2.2rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif;">TCF1 & TCF2 VIN Generation PPC Dashboard</h1>
-        <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0 0 0; font-size: 1.05rem; font-weight: 400; font-family: 'Inter', sans-serif;">Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+                <h1 style="color: white !important; font-weight: 850; margin: 0; font-size: 2.2rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif;">TCF1 & TCF2 VIN Generation PPC Dashboard</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0 0 0; font-size: 1.05rem; font-weight: 400; font-family: 'Inter', sans-serif;">Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.45rem; background: rgba(255,255,255,0.16); padding: 0.4rem 0.9rem; border-radius: 999px; white-space: nowrap;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #34D399; box-shadow: 0 0 0 3px rgba(52,211,153,0.35); display: inline-block; animation: statusPulse 2s ease-in-out infinite;"></span>
+                <span style="color: white; font-size: 0.82rem; font-weight: 600; font-family: 'Inter', sans-serif;">{_status_text}</span>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
