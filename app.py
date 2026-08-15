@@ -12,6 +12,7 @@ import allocation_engine as ae
 importlib.reload(ae)
 import datetime
 from streamlit_paste_button import paste_image_button
+from streamlit_autorefresh import st_autorefresh
 
 # IST (India Standard Time) Timezone offset = UTC + 5:30
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
@@ -44,6 +45,36 @@ def format_ist_mtime(filepath, fmt="%d-%m-%Y %I:%M %p"):
         return dt.strftime(fmt)
     except Exception:
         return None
+
+def perform_onedrive_sync(url):
+    try:
+        raw_bytes = dl.download_from_onedrive(url)
+        buffers = dl.parse_onedrive_workbook(raw_bytes)
+        upload_ts = format_ist_now("%d-%m-%Y %I:%M %p")
+        for category, buf in buffers.items():
+            if buf:
+                st.session_state[f"buffer_{category}"] = buf
+                st.session_state[f"upload_time_{category}"] = upload_ts
+                dl.save_metadata(f"upload_time_{category}", upload_ts)
+        st.session_state['last_onedrive_sync'] = datetime.datetime.now()
+        st.session_state['run_report'] = True
+        return True, "Synced successfully!"
+    except Exception as e:
+        return False, str(e)
+
+# OneDrive Auto-Sync Logic
+db_onedrive_url = dl.load_metadata('onedrive_url', '')
+db_auto_sync = dl.load_metadata('onedrive_auto_sync', 'False') == 'True'
+
+if db_auto_sync:
+    st_autorefresh(interval=5 * 60 * 1000, key="onedrive_refresh")
+
+if db_auto_sync and db_onedrive_url:
+    last_sync = st.session_state.get('last_onedrive_sync')
+    # Fetch if not synced this session, or if more than 270 seconds (4.5 mins) have passed
+    if not last_sync or (datetime.datetime.now() - last_sync).total_seconds() > 270:
+        with st.spinner("🔄 Auto-syncing live data from OneDrive..."):
+            perform_onedrive_sync(db_onedrive_url)
 
 # Initialize session state for theme preference from database
 db_theme = '☀️ White Theme'
@@ -795,13 +826,44 @@ with config_expander:
     
     with col_upload:
         with st.container(border=True):
-            st.markdown("#### 📤 Upload Raw Plant Files")
+            st.markdown("#### 📥 Data Sync & Upload")
+            sync_tab, upload_tab = st.tabs(["🔄 Auto-Sync", "📤 Manual Upload"])
             
-            uploaded_files = st.file_uploader(
-                "Upload plant reports to replace existing ones",
-                accept_multiple_files=True,
-                help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
-            )
+            with sync_tab:
+                st.caption("Sync directly from your OneDrive/SharePoint Macro Dashboard file.")
+                input_url = st.text_input("OneDrive/SharePoint URL or Local File Path", value=db_onedrive_url, placeholder="e.g. Dashboard files.xlsm or Paste SharePoint link...")
+                
+                col_sync_btn, col_auto_toggle = st.columns([1, 1])
+                with col_sync_btn:
+                    if st.button("🔄 Sync Now", use_container_width=True):
+                        if input_url:
+                            with st.spinner("Downloading and parsing OneDrive data..."):
+                                success, msg = perform_onedrive_sync(input_url)
+                                if success:
+                                    st.success(msg)
+                                    dl.save_metadata('onedrive_url', input_url)
+                                    st.rerun()
+                                else:
+                                    st.error(f"Sync failed: {msg}")
+                        else:
+                            st.warning("Please enter a URL first.")
+                            
+                with col_auto_toggle:
+                    st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
+                    new_auto_sync = st.toggle("Enable 5-Min Auto-Sync", value=db_auto_sync)
+                    if new_auto_sync != db_auto_sync:
+                        dl.save_metadata('onedrive_auto_sync', str(new_auto_sync))
+                        st.rerun()
+                        
+                if input_url != db_onedrive_url and input_url:
+                    dl.save_metadata('onedrive_url', input_url)
+
+            with upload_tab:
+                uploaded_files = st.file_uploader(
+                    "Upload plant reports to replace existing ones",
+                    accept_multiple_files=True,
+                    help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
+                )
             
             # Process uploads immediately, saving to session state buffers and optionally to disk
             uploaded_ids = [f"{f.name}_{f.size}" for f in uploaded_files] if uploaded_files else []

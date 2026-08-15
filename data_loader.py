@@ -7,6 +7,7 @@ import openpyxl
 import pyxlsb
 import sqlite3
 import streamlit as st
+import requests
 
 def _hash_upload_buffer(b):
     """
@@ -1626,3 +1627,73 @@ def load_shop_wise_report(filepath_or_buffer, return_debug=False):
         print(f"Error loading Shop_Wise_Report: {e}")
         return _fail(f"Unexpected error while parsing: {e}")
 
+def download_from_onedrive(url):
+    """
+    Downloads the Excel file from a OneDrive/SharePoint URL, or reads from a local path.
+    Returns the file content as bytes.
+    """
+    url = url.strip()
+    
+    # If it's a local file path
+    if not url.startswith('http'):
+        import os
+        if os.path.exists(url):
+            with open(url, 'rb') as f:
+                return f.read()
+        else:
+            raise FileNotFoundError(f"Local file not found: {url}")
+
+    # If it's a URL
+    if '?' in url:
+        download_url = f"{url}&download=1"
+    else:
+        download_url = f"{url}?download=1"
+        
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    
+    response = requests.get(download_url, headers=headers)
+    response.raise_for_status()
+    
+    # Check if we got an HTML login page instead of the Excel file
+    if 'html' in response.headers.get('Content-Type', '').lower():
+        raise ValueError(
+            "Received an HTML login page instead of the Excel file. "
+            "This happens if the SharePoint link has 'Block Download' enabled. "
+            "Please generate a link with 'Block Download' UNCHECKED, or enter the local path to the synced file (e.g. Dashboard files.xlsm)."
+        )
+        
+    return response.content
+
+def parse_onedrive_workbook(bytes_content):
+    """
+    Takes the raw bytes of the Dashboard files.xlsm, parses it, and returns 
+    a dictionary of BytesIO buffers for each of the 5 required reports.
+    """
+    excel_file = pd.ExcelFile(io.BytesIO(bytes_content), engine='openpyxl')
+    
+    # Mapping of system categories to their sheet names in the workbook
+    sheet_mapping = {
+        'FLOAT_REPORT': 'PPC_Float_BIW_VIN',
+        'FLOAT_PAINT_SUMMARY': 'PPC_Float_Paint',
+        'SHOP_WISE_REPORT': 'Date_Shop_Wise',
+        'TCF1_VGL': 'TCF1_VIN_Gen',
+        'TCF2_VGL': 'TCF2_VIN_Gen'
+    }
+    
+    buffers = {}
+    for key, sheet_name in sheet_mapping.items():
+        if sheet_name in excel_file.sheet_names:
+            df = pd.read_excel(excel_file, sheet_name=sheet_name)
+            
+            buf = io.BytesIO()
+            buf.name = f"{sheet_name}.xlsx"
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False)
+            buf.seek(0)
+            buffers[key] = buf
+        else:
+            buffers[key] = None
+            
+    return buffers
