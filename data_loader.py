@@ -1429,8 +1429,6 @@ def map_tcf_model_name(raw_name):
         if 'EV' in u or 'ETURNA' in u:
             return 'HARRIER EV'
         return 'HARRIER'
-    elif 'CURVV' in u:
-        return 'CURVV EV' if 'EV' in u else 'CURVV'
     return None
 
 

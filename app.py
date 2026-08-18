@@ -2943,7 +2943,7 @@ with tcf_tabs[6]:
             
         if shop_vehicles_df is not None and not shop_vehicles_df.empty:
             tcf1_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['PUNCH', 'PUNCH Exports', 'PUNCH EV', 'ALTROZ'])]
-            tcf2_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['HARRIER EV', 'SAFARI', 'HARRIER', 'CURVV EV', 'CURVV', 'SAFARI EV'])]
+            tcf2_m = shop_vehicles_df[shop_vehicles_df['Model'].isin(['HARRIER EV', 'SAFARI', 'HARRIER', 'SAFARI EV'])]
             
             if not tcf1_m.empty:
                 tcf1_paint_val = int(tcf1_m['Paint Lifting'].sum())
@@ -3421,7 +3421,7 @@ with tcf_tabs[0]:
             st.markdown("#### 🚗 Model-Wise Production Matrix (TCF1 & TCF2 Breakdown)")
             
             tcf1_models = ['PUNCH', 'PUNCH Exports', 'PUNCH EV', 'ALTROZ', 'ALTROZ DCA', 'ALTROZ EV']
-            tcf2_models = ['HARRIER EV', 'SAFARI', 'HARRIER', 'CURVV EV', 'CURVV', 'SAFARI EV']
+            tcf2_models = ['HARRIER EV', 'SAFARI', 'HARRIER', 'SAFARI EV']
             
             df1 = shop_vehicles_df[shop_vehicles_df['Model'].isin(tcf1_models)].copy()
             df2 = shop_vehicles_df[shop_vehicles_df['Model'].isin(tcf2_models)].copy()
