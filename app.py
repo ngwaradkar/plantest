@@ -63,11 +63,14 @@ def perform_onedrive_sync(url):
     except Exception as e:
         return False, str(e)
 
-# OneDrive Auto-Sync Logic
+# OneDrive Auto-Sync Logic & Telegram 15-Minute Auto-Send Logic
 db_onedrive_url = dl.load_metadata('onedrive_url', '')
 db_auto_sync = dl.load_metadata('onedrive_auto_sync', 'False') == 'True'
+db_tg_auto_send = dl.load_metadata('telegram_auto_send_15m', 'False') == 'True'
 
-if db_auto_sync:
+if db_tg_auto_send or st.session_state.get('telegram_auto_send_15m', False):
+    st_autorefresh(interval=20 * 1000, key="tg_auto_send_refresh")
+elif db_auto_sync:
     st_autorefresh(interval=5 * 60 * 1000, key="onedrive_refresh")
 
 if db_auto_sync and db_onedrive_url:
@@ -673,6 +676,13 @@ if 'telegram_chat_id' not in st.session_state:
         st.session_state.telegram_chat_id = saved_cid if saved_cid else DEFAULT_TELEGRAM_CHAT_ID
     except Exception:
         st.session_state.telegram_chat_id = DEFAULT_TELEGRAM_CHAT_ID
+
+if 'telegram_auto_send_15m' not in st.session_state:
+    try:
+        saved_auto = dl.load_metadata('telegram_auto_send_15m', 'False') == 'True'
+        st.session_state.telegram_auto_send_15m = saved_auto
+    except Exception:
+        st.session_state.telegram_auto_send_15m = False
 
 # Auto reset at 6:30 AM is completely disabled. Data reset is only performed when manually triggered by planner via Control Center.
 
@@ -3087,6 +3097,108 @@ Available Cabs for VIN Generation:
 TCF1: {tcf1_pbs_detail_str}
 
 TCF2: {tcf2_pbs_detail_str}"""
+
+        # ----------------- AUTO-SEND 3 REPORTS (15-MIN INTERVAL) -----------------
+        with st.container(border=True):
+            as_col1, as_col2 = st.columns([3, 1.4])
+            with as_col1:
+                st.markdown("##### ⏰ Auto-Send 3 Reports (15-Minute Intervals)")
+                st.caption(
+                    "Automatically dispatches all 3 reports to Telegram at exact 15-minute clock intervals "
+                    "(e.g., **6:00 PM**, **6:15 PM**, **6:30 PM**, **6:45 PM**). Reports are **not** sent in-between."
+                )
+            with as_col2:
+                cur_auto_state = st.session_state.get('telegram_auto_send_15m', False)
+                tg_auto_toggle = st.toggle(
+                    "⏱️ **Auto-Send ON / OFF**",
+                    value=cur_auto_state,
+                    key="tg_auto_send_toggle"
+                )
+                if tg_auto_toggle != cur_auto_state:
+                    st.session_state.telegram_auto_send_15m = tg_auto_toggle
+                    try:
+                        dl.save_metadata('telegram_auto_send_15m', str(tg_auto_toggle))
+                    except Exception:
+                        pass
+                    if tg_auto_toggle:
+                        st.toast("⏰ 15-Minute Auto-Send Enabled! Reports will dispatch at :00, :15, :30, :45.", icon="⏰")
+                    else:
+                        st.toast("⏹️ 15-Minute Auto-Send Disabled.", icon="⏹️")
+                    st.rerun()
+
+            # Status information metrics
+            now_dt = get_ist_now()
+            last_sent_time = dl.load_metadata('last_auto_tg_sent_time', 'None yet')
+            last_sent_status = dl.load_metadata('last_auto_tg_status', 'Idle')
+            cur_slot = now_dt.strftime("%Y-%m-%d %H:%M")
+            last_sent_slot = dl.load_metadata('last_auto_tg_sent_slot', '')
+            
+            cur_min = now_dt.minute
+            rem_min = cur_min % 15
+            
+            if rem_min == 0 and last_sent_slot != cur_slot:
+                next_slot_str = now_dt.strftime("%I:%M %p (Dispatching now...)")
+            else:
+                add_mins = 15 - rem_min if rem_min != 0 else 15
+                next_trigger = (now_dt + datetime.timedelta(minutes=add_mins)).replace(second=0, microsecond=0)
+                next_slot_str = next_trigger.strftime("%I:%M %p")
+
+            m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+            with m_c1:
+                if cur_auto_state:
+                    st.markdown("🟢 **Status:** <span style='color:#10B981;font-weight:600;'>Active (:00, :15, :30, :45)</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown("⚪ **Status:** <span style='color:#6B7280;font-weight:600;'>Disabled (OFF)</span>", unsafe_allow_html=True)
+            with m_c2:
+                st.markdown(f"🕐 **Current IST:** `{now_dt.strftime('%I:%M %p')}`")
+            with m_c3:
+                st.markdown(f"⏳ **Next Trigger:** `{next_slot_str}`")
+            with m_c4:
+                st.markdown(f"📡 **Last Sent:** `{last_sent_time}`")
+
+            if cur_auto_state and last_sent_status and last_sent_status != 'Idle':
+                st.caption(f"ℹ️ {last_sent_status}")
+
+        # Auto-send execution check on 15-min mark (:00, :15, :30, :45)
+        if st.session_state.get('telegram_auto_send_15m', False):
+            now_ist = get_ist_now()
+            # Strictly check if current minute is exactly 0, 15, 30, or 45
+            if now_ist.minute in (0, 15, 30, 45):
+                slot_key = now_ist.strftime("%Y-%m-%d %H:%M")
+                last_slot_db = dl.load_metadata('last_auto_tg_sent_slot', '')
+                
+                if last_slot_db != slot_key:
+                    # Save slot immediately to prevent duplicate dispatches
+                    dl.save_metadata('last_auto_tg_sent_slot', slot_key)
+                    st.session_state.last_auto_tg_sent_slot = slot_key
+                    
+                    bot_tok = st.session_state.get('telegram_token', '').strip()
+                    chat_id_val = st.session_state.get('telegram_chat_id', '').strip()
+                    
+                    if bot_tok and chat_id_val:
+                        ok1, res1 = dl.send_telegram_message(bot_tok, chat_id_val, tg_report_1_text)
+                        ok2, res2 = dl.send_telegram_message(bot_tok, chat_id_val, tg_report_2_text)
+                        ok3, res3 = dl.send_telegram_message(bot_tok, chat_id_val, tg_report_3_text)
+                        
+                        ts_str = format_ist_now("%d-%m-%Y %I:%M %p")
+                        if ok1 and ok2 and ok3:
+                            msg_stat = f"✅ All 3 reports auto-dispatched successfully at {now_ist.strftime('%I:%M %p')}"
+                            dl.save_metadata('last_auto_tg_sent_time', ts_str)
+                            dl.save_metadata('last_auto_tg_status', msg_stat)
+                            st.session_state.last_auto_tg_sent_time = ts_str
+                            st.session_state.last_auto_tg_status = msg_stat
+                            st.toast(f"🚀 Auto-dispatched 3 reports for {now_ist.strftime('%I:%M %p')} to Telegram!", icon="🚀")
+                        else:
+                            err_list = []
+                            if not ok1: err_list.append(f"Report 1: {res1}")
+                            if not ok2: err_list.append(f"Report 2: {res2}")
+                            if not ok3: err_list.append(f"Report 3: {res3}")
+                            msg_stat = f"⚠️ Dispatched with errors at {now_ist.strftime('%I:%M %p')}: {', '.join(err_list)}"
+                            dl.save_metadata('last_auto_tg_sent_time', ts_str)
+                            dl.save_metadata('last_auto_tg_status', msg_stat)
+                            st.session_state.last_auto_tg_sent_time = ts_str
+                            st.session_state.last_auto_tg_status = msg_stat
+                            st.toast(f"⚠️ Auto-send error at {now_ist.strftime('%I:%M %p')}", icon="⚠️")
 
         # ----------------- QUICK ACTIONS: SEND ALL 3 SCHEDULED REPORTS -----------------
         with st.container(border=True):
