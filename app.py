@@ -261,27 +261,52 @@ st.markdown(f"""
        PREMIUM EXECUTIVE SEGMENTED NAVIGATION TAB BAR
        ======================================================= */
     div.stTabs {{
-        margin-top: 0.5rem !important;
-        margin-bottom: 2rem !important;
+        margin-top: 0.25rem !important;
+        margin-bottom: 1.0rem !important;
     }}
     
     div[data-baseweb="tab-list"] {{
         background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%) !important;
-        padding: 6px 8px !important;
-        border-radius: 14px !important;
-        gap: 6px !important;
-        margin-bottom: 1.5rem !important;
+        padding: 5px 6px !important;
+        border-radius: 12px !important;
+        gap: 5px !important;
+        margin-bottom: 0.75rem !important;
         border: 1px solid var(--border-color) !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03), inset 0 1px 2px rgba(0, 0, 0, 0.02) !important;
         display: flex !important;
         align-items: center !important;
         flex-wrap: wrap !important;
         width: 100% !important;
     }}
+
+    /* Compact nested tabs inside expanders and cards */
+    details[data-testid="stExpander"] div.stTabs,
+    div[data-testid="stVerticalBlockBorderWrapper"] div.stTabs,
+    div[data-testid="stForm"] div.stTabs {{
+        margin-top: 0px !important;
+        margin-bottom: 0.35rem !important;
+    }}
+    details[data-testid="stExpander"] div[data-baseweb="tab-list"],
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-baseweb="tab-list"],
+    div[data-testid="stForm"] div[data-baseweb="tab-list"] {{
+        margin-bottom: 0.4rem !important;
+        padding: 3px 5px !important;
+        gap: 4px !important;
+        border-radius: 8px !important;
+    }}
+    details[data-testid="stExpander"] button[data-baseweb="tab"],
+    div[data-testid="stVerticalBlockBorderWrapper"] button[data-baseweb="tab"],
+    div[data-testid="stForm"] button[data-baseweb="tab"] {{
+        padding: 4px 10px !important;
+        font-size: 0.82rem !important;
+        border-radius: 6px !important;
+    }}
     
     /* Remove default Streamlit tab borders and highlight bars */
     div[data-baseweb="tab-border"],
-    div[data-baseweb="tab-highlight"] {{
+    div[data-baseweb="tab-highlight"],
+    div[data-testid="stTabHighlight"],
+    div[data-testid="stTabBorder"] {{
         display: none !important;
         opacity: 0 !important;
         height: 0px !important;
@@ -458,11 +483,30 @@ st.markdown(f"""
         border-color: var(--border-color) !important;
     }}
     
-    /* Custom file uploader border */
+    /* Custom file uploader compact look */
     section[data-testid="stFileUploader"] {{
-        border: 2px dashed var(--border-color) !important;
-        border-radius: 12px !important;
+        border: 1.5px dashed var(--border-color) !important;
+        border-radius: 10px !important;
         background-color: var(--bg-secondary) !important;
+        padding: 0.4rem 0.6rem !important;
+        min-height: 0px !important;
+    }}
+    section[data-testid="stFileUploader"] > div {{
+        padding: 0.2rem 0 !important;
+    }}
+    section[data-testid="stFileUploader"] small {{
+        font-size: 0.72rem !important;
+    }}
+    section[data-testid="stFileUploader"] button {{
+        padding: 0.35rem 0.8rem !important;
+        font-size: 0.82rem !important;
+    }}
+
+    /* Streamlit bordered containers compact padding */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
+        padding: 0.75rem 0.9rem !important;
+        border-radius: 12px !important;
+        margin-bottom: 0.35rem !important;
     }}
 
     /* Status pulse animation for the header "live" indicator */
@@ -536,7 +580,7 @@ st.markdown(f"""
         font-weight: 600 !important;
     }}
 
-    /* Responsive tweaks for tablet / mobile */
+    /* ===== RESPONSIVE TWEAKS: TABLET ===== */
     @media (max-width: 900px) {{
         .main .block-container {{
             padding: 1.25rem 1rem !important;
@@ -546,6 +590,137 @@ st.markdown(f"""
         }}
         h1 {{ font-size: 1.6rem !important; }}
         h2 {{ font-size: 1.35rem !important; }}
+    }}
+
+    /* ===== RESPONSIVE TWEAKS: MOBILE (≤ 640px) ===== */
+    @media (max-width: 640px) {{
+        /* Tighten main container padding */
+        .main .block-container {{
+            padding: 0.75rem 0.5rem !important;
+        }}
+
+        /* Shrink headings for mobile */
+        h1 {{ font-size: 1.25rem !important; }}
+        h2 {{ font-size: 1.1rem !important; }}
+        h3 {{ font-size: 1rem !important; }}
+        h4 {{ font-size: 0.92rem !important; }}
+
+        /* Compact metric cards */
+        div[data-testid="stMetric"] {{
+            padding: 0.6rem 0.75rem !important;
+            border-radius: 10px !important;
+        }}
+        div[data-testid="stMetric"] label {{
+            font-size: 0.72rem !important;
+        }}
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+            font-size: 0.95rem !important;
+        }}
+
+        /* Scrollable, compact tab bar */
+        div[data-baseweb="tab-list"] {{
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            gap: 4px !important;
+            padding: 4px 4px !important;
+            border-radius: 10px !important;
+            margin-bottom: 1rem !important;
+        }}
+        button[data-baseweb="tab"] {{
+            padding: 6px 10px !important;
+            font-size: 0.78rem !important;
+            border-radius: 8px !important;
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+        }}
+
+        /* Reduce column gaps — Streamlit renders columns side-by-side */
+        div[data-testid="stHorizontalBlock"] {{
+            gap: 0.35rem !important;
+        }}
+
+        /* Compact expander */
+        details[data-testid="stExpander"] {{
+            margin-bottom: 0.75rem !important;
+            border-radius: 10px !important;
+        }}
+        details[data-testid="stExpander"] summary {{
+            font-size: 0.85rem !important;
+        }}
+
+        /* Compact containers / forms */
+        div[data-testid="stForm"] {{
+            padding: 0.75rem !important;
+            border-radius: 10px !important;
+        }}
+
+        /* Reduce vertical spacing in bordered containers */
+        div[data-testid="stVerticalBlock"] > div {{
+            padding-top: 0 !important;
+        }}
+
+        /* Title card mobile class */
+        .mobile-title-card {{
+            padding: 1.1rem 1rem !important;
+            border-radius: 12px !important;
+        }}
+        .mobile-title-card h1 {{
+            font-size: 1.15rem !important;
+            line-height: 1.3 !important;
+        }}
+        .mobile-title-card p {{
+            font-size: 0.82rem !important;
+        }}
+
+        /* Status rows: stack label + icon on small screens */
+        .mobile-status-row {{
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 2px !important;
+            margin-bottom: 6px !important;
+            padding: 6px 0 !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }}
+        .mobile-status-label {{
+            width: auto !important;
+            min-width: 0 !important;
+            font-size: 0.82rem !important;
+        }}
+        .mobile-status-badge {{
+            font-size: 0.78rem !important;
+        }}
+        .mobile-status-time {{
+            font-size: 0.7rem !important;
+            word-break: break-all !important;
+        }}
+
+        /* Buttons full-width and compact */
+        button[kind="primary"], button[kind="secondary"] {{
+            padding: 0.5rem 1rem !important;
+            font-size: 0.85rem !important;
+            border-radius: 8px !important;
+        }}
+
+        /* Download button */
+        div[data-testid="stDownloadButton"] button {{
+            font-size: 0.82rem !important;
+            padding: 0.4rem 0.8rem !important;
+        }}
+
+        /* File uploader compact */
+        section[data-testid="stFileUploader"] {{
+            border-radius: 10px !important;
+        }}
+
+        /* Number inputs compact */
+        div[data-baseweb="input"] input {{
+            font-size: 0.85rem !important;
+            padding: 0.4rem 0.5rem !important;
+        }}
+
+        /* Scrollbar thinner on mobile */
+        ::-webkit-scrollbar {{ width: 4px; height: 4px; }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -558,15 +733,15 @@ with col_title_card:
     else:
         _status_text = "System Online"
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, var(--accent-color) 0%, #06B6D4 100%); padding: 1.8rem 2.2rem; border-radius: 16px; margin-bottom: 2rem; color: white; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);">
+    <div class="mobile-title-card" style="background: linear-gradient(135deg, var(--accent-color) 0%, #06B6D4 100%); padding: 1.8rem 2.2rem; border-radius: 16px; margin-bottom: 1.5rem; color: white; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
-            <div>
-                <h1 style="color: white !important; font-weight: 850; margin: 0; font-size: 2.2rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif;">TCF1 & TCF2 VIN Generation PPC Dashboard</h1>
-                <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0 0 0; font-size: 1.05rem; font-weight: 400; font-family: 'Inter', sans-serif;">Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>
+            <div style="min-width: 0; flex: 1;">
+                <h1 style="color: white !important; font-weight: 850; margin: 0; font-size: 2.2rem; letter-spacing: -0.03em; font-family: 'Inter', sans-serif; overflow-wrap: break-word;">TCF1 & TCF2 VIN Generation PPC Dashboard</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 0.4rem 0 0 0; font-size: 1.0rem; font-weight: 400; font-family: 'Inter', sans-serif;">Painted Body Storage (PBS) Buffer Allocation & Multi-Stage Material Availability Summary</p>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.45rem; background: rgba(255,255,255,0.16); padding: 0.4rem 0.9rem; border-radius: 999px; white-space: nowrap;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; background: rgba(255,255,255,0.16); padding: 0.35rem 0.75rem; border-radius: 999px; white-space: nowrap; flex-shrink: 0;">
                 <span style="width: 8px; height: 8px; border-radius: 50%; background: #34D399; box-shadow: 0 0 0 3px rgba(52,211,153,0.35); display: inline-block; animation: statusPulse 2s ease-in-out infinite;"></span>
-                <span style="color: white; font-size: 0.82rem; font-weight: 600; font-family: 'Inter', sans-serif;">{_status_text}</span>
+                <span style="color: white; font-size: 0.8rem; font-weight: 600; font-family: 'Inter', sans-serif;">{_status_text}</span>
             </div>
         </div>
     </div>
@@ -883,16 +1058,15 @@ config_expander = st.expander(
 )
 
 with config_expander:
-    col_upload, col_engine = st.columns([1.15, 1.2])
-    
+    col_upload, col_engine, col_extras = st.columns([1.1, 1.1, 1.0])
+
     with col_upload:
         with st.container(border=True):
-            st.markdown("#### 📥 Data Sync & Upload")
+            st.markdown("<div style='font-weight:700; font-size:15px; margin-bottom:4px;'>📥 Data Sync & Upload</div>", unsafe_allow_html=True)
             sync_tab, upload_tab = st.tabs(["🔄 Auto-Sync", "📤 Manual Upload"])
             
             with sync_tab:
-                st.caption("Sync directly from your OneDrive/SharePoint Macro Dashboard file.")
-                input_url = st.text_input("OneDrive/SharePoint URL or Local File Path", value=db_onedrive_url, placeholder="e.g. Dashboard files.xlsm or Paste SharePoint link...")
+                input_url = st.text_input("OneDrive / SharePoint URL", value=db_onedrive_url, placeholder="e.g. Dashboard files.xlsm or SharePoint link...", label_visibility="collapsed")
                 
                 col_sync_btn, col_auto_toggle = st.columns([1, 1])
                 with col_sync_btn:
@@ -982,26 +1156,30 @@ with config_expander:
                     detected_files = dl.detect_and_classify_files(active_dir)
                     st.session_state.run_report = False
                     st.rerun()
-            
-            st.markdown("##### Loaded Files Status")
-            
-            # Check if database has BOM
-            db_bom_df = None
-            try:
-                db_bom_df = dl.load_bom_from_db()
-                if db_bom_df is not None and not db_bom_df.empty:
-                    import io
-                    excel_buffer = io.BytesIO()
-                    db_bom_df.to_excel(excel_buffer, index=False)
-                    st.download_button(
-                        label="⬇️ Download Updated BOM (.xlsx)",
-                        data=excel_buffer.getvalue(),
-                        file_name="Bom details.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help="Download the database state (including Quick-Entry fixes) to permanently update your GitHub repo."
-                    )
-            except Exception:
-                pass
+
+        with st.container(border=True):
+            col_stat_title, col_stat_dl = st.columns([1.3, 1.0])
+            with col_stat_title:
+                st.markdown("<div style='font-weight:700; font-size:13.5px; margin-top:4px;'>📋 Loaded Files Status</div>", unsafe_allow_html=True)
+            with col_stat_dl:
+                # Check if database has BOM
+                db_bom_df = None
+                try:
+                    db_bom_df = dl.load_bom_from_db()
+                    if db_bom_df is not None and not db_bom_df.empty:
+                        import io
+                        excel_buffer = io.BytesIO()
+                        db_bom_df.to_excel(excel_buffer, index=False)
+                        st.download_button(
+                            label="⬇️ BOM (.xlsx)",
+                            data=excel_buffer.getvalue(),
+                            file_name="Bom details.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Download the database state (including Quick-Entry fixes)",
+                            use_container_width=True
+                        )
+                except Exception:
+                    pass
             
             status_items = []
             seq_num = 1
@@ -1064,17 +1242,32 @@ with config_expander:
             sub_text_color = "#94A3B8" if is_dark_theme else "#64748B"
             label_color = "#FAFAFA" if is_dark_theme else "#1E293B"
 
-            status_html = "<div style='font-family: \"Inter\", sans-serif; font-size: 13px; line-height: 1.8; margin-top: 8px;'>"
+            status_html = "<div style='font-family: \"Inter\", sans-serif; margin-top: 2px;'>"
             for num, name, icon, src in status_items:
-                status_html += f'<div style="display: flex; align-items: center; margin-bottom: 4px;"><span style="font-weight: 700; width: 255px; color: {label_color}; display: inline-block; flex-shrink: 0;">{num}. {name}:</span><span style="margin-right: 12px; flex-shrink: 0;">{icon}</span><span style="color: {sub_text_color}; font-size: 12px; word-break: break-all;">{src}</span></div>'
+                # Determine badge color based on status
+                if "🟢" in icon:
+                    badge_bg = "#DCFCE7" if not is_dark_theme else "#064E3B"
+                    badge_text = "#166534" if not is_dark_theme else "#D1FAE5"
+                    badge_label = "✓ Uploaded"
+                else:
+                    badge_bg = "#FEE2E2" if not is_dark_theme else "#7F1D1D"
+                    badge_text = "#DC2626" if not is_dark_theme else "#FEE2E2"
+                    badge_label = "✗ Missing"
+                row_border = '#30363D' if is_dark_theme else '#F1F5F9'
+                status_html += f'''<div style="padding: 3.5px 0; border-bottom: 1px solid {row_border}; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <div style="display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;">
+                        <span style="font-weight: 650; color: {label_color}; font-size: 12px; flex-shrink: 0;">{num}. {name}:</span>
+                        <span style="color: {sub_text_color}; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{src}</span>
+                    </div>
+                    <span style="background: {badge_bg}; color: {badge_text}; padding: 1.5px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600; white-space: nowrap; flex-shrink: 0;">{badge_label}</span>
+                </div>'''
             status_html += "</div>"
             st.markdown(status_html, unsafe_allow_html=True)
 
-        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+    with col_extras:
         with st.container(border=True):
             st.markdown("#### ⚡ Punch EV (Nova) Component Starting Stocks")
             st.markdown("<small style='color:#8896AB'>Enter clearance counts for 5 critical Punch EV materials (Defaults: 0)</small>", unsafe_allow_html=True)
-            
             nova_vals = {}
             if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
                 for idx, r_nova in st.session_state.nova_materials_df.iterrows():
@@ -1082,11 +1275,11 @@ with config_expander:
 
             materials_list = ["Battery", "Combo", "Tube Frame(Craddle)", "Subframe", "RTB"]
 
-            nova_cols = st.columns(5)
+            nova_cols = st.columns(3)
             new_nova_input_vals = {}
             for idx, mat in enumerate(materials_list):
                 current_val = nova_vals.get(mat, 0)
-                with nova_cols[idx]:
+                with nova_cols[idx % 3]:
                     st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{mat}</div>", unsafe_allow_html=True)
                     new_nova_input_vals[mat] = st.number_input(
                         label=mat,
@@ -1202,34 +1395,34 @@ with config_expander:
                 ms_disp_df = st.session_state.model_shortages_df.copy()
                 
                 for idx_ms, row_ms in ms_disp_df.iterrows():
-                    c1, c2, c3, c4, c5, c6 = st.columns([1.1, 1.1, 1.4, 0.7, 1.5, 0.4])
-                    with c1:
-                        st.markdown(f"**{row_ms['Model']}**")
-                    with c2:
-                        st.markdown(f"`{row_ms.get('Trims', 'All Trims')}`")
-                    with c3:
-                        st.markdown(f"{row_ms['Part Name']}")
-                    with c4:
-                        st.markdown(f"Clearance: `{row_ms['Clearance Qty']}`")
-                    with c5:
-                        c_qty = int(row_ms['Clearance Qty'])
-                        tcf1_tmp = locals().get('tcf1_drops', None)
-                        tcf2_tmp = locals().get('tcf2_drops', None)
-                        vins_today = get_backflushed_vin_count_for_model_trims(row_ms['Model'], row_ms.get('Trims', 'All Trims'), tcf1_tmp, tcf2_tmp)
-                        true_buf = max(0, c_qty - vins_today)
-                        if true_buf <= 0:
-                            st.markdown(f"<span style='background:#FEE2E2; color:#DC2626; border: 1px solid #FCA5A5; padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;'>🚨 SHORTAGE: 0 Buffer (VIN Gen: {vins_today})</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<span style='background:#DCFCE7; color:#166534; border: 1px solid #86EFAC; padding:3px 8px; border-radius:6px; font-weight:600; font-size:11px;'>🟢 OK: {true_buf} Buffer (VIN Gen: {vins_today})</span>", unsafe_allow_html=True)
-                    with c6:
-                        if st.button("🗑️", key=f"del_ms_{idx_ms}", help="Delete item"):
-                            st.session_state.model_shortages_df = st.session_state.model_shortages_df.drop(idx_ms).reset_index(drop=True)
-                            try:
-                                dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
-                            except Exception:
-                                pass
-                            st.toast("Item removed", icon="🗑️")
-                            st.rerun()
+                    c_qty = int(row_ms['Clearance Qty'])
+                    tcf1_tmp = locals().get('tcf1_drops', None)
+                    tcf2_tmp = locals().get('tcf2_drops', None)
+                    vins_today = get_backflushed_vin_count_for_model_trims(row_ms['Model'], row_ms.get('Trims', 'All Trims'), tcf1_tmp, tcf2_tmp)
+                    true_buf = max(0, c_qty - vins_today)
+                    if true_buf <= 0:
+                        status_badge = f"<span style='background:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:6px; font-weight:700; font-size:11px;'>🚨 SHORTAGE (VIN: {vins_today})</span>"
+                    else:
+                        status_badge = f"<span style='background:#DCFCE7; color:#166534; padding:2px 6px; border-radius:6px; font-weight:600; font-size:11px;'>🟢 OK: {true_buf} (VIN: {vins_today})</span>"
+                    
+                    ms_card_border = '#30363D' if is_dark_theme else '#E5E7EB'
+                    ms_card_bg = '#1F2937' if is_dark_theme else '#F9FAFB'
+                    st.markdown(f"""<div style="background:{ms_card_bg}; border:1px solid {ms_card_border}; border-radius:8px; padding:8px 10px; margin-bottom:6px; font-family:'Inter',sans-serif;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
+                            <span style="font-weight:700; font-size:12px; color:{label_color};">{row_ms['Model']}</span>
+                            <span style="font-size:11px; color:{sub_text_color};">{row_ms.get('Trims','All Trims')}</span>
+                        </div>
+                        <div style="font-size:12px; color:{label_color}; margin:2px 0;">{row_ms['Part Name']} · Qty: <b>{c_qty}</b></div>
+                        <div>{status_badge}</div>
+                    </div>""", unsafe_allow_html=True)
+                    if st.button("🗑️", key=f"del_ms_{idx_ms}", help="Delete item", use_container_width=False):
+                        st.session_state.model_shortages_df = st.session_state.model_shortages_df.drop(idx_ms).reset_index(drop=True)
+                        try:
+                            dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
+                        except Exception:
+                            pass
+                        st.toast("Item removed", icon="🗑️")
+                        st.rerun()
 
                 if st.button("🗑️ Clear All Model Shortages", key="clear_all_ms_btn", use_container_width=True):
                     st.session_state.model_shortages_df = pd.DataFrame(columns=['Model', 'Trims', 'Part Name', 'Clearance Qty'])
@@ -1271,9 +1464,9 @@ with config_expander:
             new_eng_input_vals = {}
 
             st.markdown("<div style='font-weight: 700; font-size: 13px; color: #3B82F6; margin-top: 6px; margin-bottom: 6px;'>TCF1 Engines (Punch ICE)</div>", unsafe_allow_html=True)
-            tcf1_cols = st.columns(4)
+            tcf1_cols = st.columns(3)
             for idx, (p_no, model_name) in enumerate(tcf1_engine_list):
-                c_idx = idx % 4
+                c_idx = idx % 3
                 curr_val = eng_vals.get(p_no, 0)
                 with tcf1_cols[c_idx]:
                     st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{model_name}</div>", unsafe_allow_html=True)
@@ -1287,10 +1480,10 @@ with config_expander:
                     )
 
             st.markdown("<div style='font-weight: 700; font-size: 13px; color: #3B82F6; margin-top: 10px; margin-bottom: 6px;'>TCF2 Engines (Harrier / Safari ICE)</div>", unsafe_allow_html=True)
-            tcf2_cols = st.columns(4)
+            tcf2_cols = st.columns(3)
             for idx, (p_no, model_name) in enumerate(tcf2_engine_list):
                 curr_val = eng_vals.get(p_no, 0)
-                with tcf2_cols[idx]:
+                with tcf2_cols[idx % 3]:
                     st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{model_name}</div>", unsafe_allow_html=True)
                     new_eng_input_vals[p_no] = st.number_input(
                         label=model_name,
