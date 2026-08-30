@@ -95,7 +95,7 @@ st.set_page_config(
     page_title="TCF1 & TCF2 VIN generation PPC Dashboard",
     page_icon="🚗",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # Render theme selector at top right
@@ -190,14 +190,129 @@ st.markdown(f"""
         color: var(--text-primary) !important;
     }}
     
-    /* Completely hide sidebar and collapse button */
-    [data-testid="stSidebar"], section[data-testid="stSidebar"] {{
-        display: none !important;
-        width: 0px !important;
+    /* Smooth in-page scrolling for sidebar navigation anchors */
+    html {{
+        scroll-behavior: smooth !important;
     }}
-    [data-testid="collapsedControl"] {{
-        display: none !important;
+    [id^="tml-nav-"] {{
+        scroll-margin-top: 20px;
     }}
+
+    /* ===========================================================
+       SIDEBAR NAVIGATION
+       =========================================================== */
+    [data-testid="stSidebar"] {{
+        background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%) !important;
+        border-right: 1px solid var(--border-color) !important;
+    }}
+    [data-testid="stSidebar"] > div {{
+        padding-top: 0.5rem !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{
+        margin-bottom: 0 !important;
+    }}
+
+    .tml-nav-brand {{
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.85rem 0.9rem;
+        margin: 0 0 1rem 0;
+        border-radius: 12px;
+        background: linear-gradient(135deg, var(--accent-color) 0%, #06B6D4 100%);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    }}
+    .tml-nav-brand-icon {{
+        font-size: 1.6rem;
+        line-height: 1;
+    }}
+    .tml-nav-brand-text {{
+        color: #ffffff;
+        line-height: 1.25;
+    }}
+    .tml-nav-brand-title {{
+        font-weight: 800;
+        font-size: 0.92rem;
+        letter-spacing: -0.01em;
+    }}
+    .tml-nav-brand-subtitle {{
+        font-weight: 500;
+        font-size: 0.72rem;
+        color: rgba(255,255,255,0.88);
+    }}
+
+    .tml-nav-group-label {{
+        font-size: 0.7rem;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--text-secondary) !important;
+        margin: 1.1rem 0.2rem 0.35rem 0.2rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }}
+    .tml-nav-group-label:first-of-type {{
+        margin-top: 0.2rem;
+    }}
+    .tml-nav-group-hint {{
+        font-size: 0.68rem;
+        font-weight: 500;
+        color: var(--text-secondary) !important;
+        opacity: 0.75;
+        margin: -0.15rem 0.2rem 0.35rem 0.2rem;
+    }}
+
+    a.tml-nav-link {{
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.42rem 0.6rem;
+        margin: 0.12rem 0;
+        border-radius: 8px;
+        color: var(--text-primary) !important;
+        font-size: 0.83rem;
+        font-weight: 550;
+        text-decoration: none !important;
+        border: 1px solid transparent;
+        transition: all 0.16s ease-in-out;
+        cursor: pointer;
+    }}
+    a.tml-nav-link:hover {{
+        background-color: var(--hover-tint) !important;
+        border-color: var(--border-color) !important;
+        transform: translateX(2px);
+        color: var(--accent-color) !important;
+    }}
+    a.tml-nav-link .tml-nav-icon {{
+        flex-shrink: 0;
+        font-size: 0.95rem;
+    }}
+
+    .tml-nav-divider {{
+        border: none;
+        border-top: 1px solid var(--border-color);
+        margin: 0.9rem 0.1rem;
+        opacity: 0.7;
+    }}
+
+    .tml-nav-top-btn {{
+        display: block;
+        text-align: center;
+        padding: 0.4rem 0.6rem;
+        margin-top: 0.4rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color) !important;
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-decoration: none !important;
+    }}
+    .tml-nav-top-btn:hover {{
+        border-color: var(--accent-color) !important;
+        color: var(--accent-color) !important;
+    }}
+
     .stApp [data-testid="stHeader"] {{
         left: 0px !important;
         background-color: transparent !important;
@@ -725,6 +840,102 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
+# ----------------- SIDEBAR NAVIGATION -----------------
+# Presentation-only addition: powers the sidebar's jump-to-section links.
+# Does not read, compute, or alter any report/business data.
+_tml_nav_js = """
+<script>
+(function() {
+    function findOuterTabList(doc) {
+        var lists = doc.querySelectorAll('div[data-baseweb="tab-list"]');
+        for (var i = 0; i < lists.length; i++) {
+            var t = lists[i].innerText || '';
+            if (t.indexOf('TCF 1 Line') !== -1 && t.indexOf('Telegram Dispatcher') !== -1) {
+                return lists[i];
+            }
+        }
+        return null;
+    }
+    window.parent.__tmlNavTo = function(tabText, anchorId) {
+        try {
+            var doc = window.parent.document;
+            if (tabText) {
+                var container = findOuterTabList(doc);
+                if (container) {
+                    var btns = container.querySelectorAll('button[data-baseweb="tab"]');
+                    for (var i = 0; i < btns.length; i++) {
+                        if (btns[i].innerText && btns[i].innerText.indexOf(tabText) !== -1) {
+                            btns[i].click();
+                            break;
+                        }
+                    }
+                }
+            }
+            setTimeout(function() {
+                var el = doc.getElementById(anchorId);
+                if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+            }, tabText ? 180 : 0);
+        } catch (e) { /* navigation is best-effort only */ }
+    };
+})();
+</script>
+"""
+st.components.v1.html(_tml_nav_js, height=0)
+
+
+def _tml_nav_link(icon, label, anchor_id, tab_text=None):
+    """UI-only helper: builds one sidebar navigation link. No business logic."""
+    tab_arg = f"'{tab_text}'" if tab_text else "null"
+    return (
+        f"<a class='tml-nav-link' href='#{anchor_id}' "
+        f"onclick=\"if(window.__tmlNavTo){{window.__tmlNavTo({tab_arg}, '{anchor_id}');}} return false;\">"
+        f"<span class='tml-nav-icon'>{icon}</span><span>{label}</span></a>"
+    )
+
+
+with st.sidebar:
+    st.markdown("""
+    <div class="tml-nav-brand">
+        <div class="tml-nav-brand-icon">🚗</div>
+        <div class="tml-nav-brand-text">
+            <div class="tml-nav-brand-title">TCF1 &amp; TCF2 Dashboard</div>
+            <div class="tml-nav-brand-subtitle">PPC Navigation</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div class='tml-nav-group-label'>⚙️ Setup</div>", unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("📥", "Control Panel (Uploads &amp; Stocks)", "tml-nav-control-panel"), unsafe_allow_html=True)
+
+    st.markdown("<div class='tml-nav-group-label'>📊 Dashboard Tabs</div>", unsafe_allow_html=True)
+    st.markdown("<div class='tml-nav-group-hint'>7 tabs live here — jump to the tab bar, then pick one</div>", unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("🧭", "Go to Tab Bar", "tml-nav-tabs-bar"), unsafe_allow_html=True)
+
+    st.markdown("<div class='tml-nav-group-label'>📈 Summary Report (default tab)</div>", unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("🏭", "Plant Production Summary", "tml-nav-production-summary"), unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("⏱️", "Hourly Production Tracker", "tml-nav-hourly-tracker"), unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("🎨", "Paint Shop Float Summary", "tml-nav-paint-float"), unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("🔋", "Engine &amp; Battery Requirement", "tml-nav-engine-battery"), unsafe_allow_html=True)
+
+    st.markdown("<div class='tml-nav-group-label'>🏭 Line Views</div>", unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("1️⃣", "TCF1 FIFO Buffer Queue", "tml-nav-tcf1", "TCF 1 Line"), unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("2️⃣", "TCF2 FIFO Buffer Queue", "tml-nav-tcf2", "TCF 2 Line"), unsafe_allow_html=True)
+
+    st.markdown("<div class='tml-nav-group-label'>🎯 Quality &amp; Reporting</div>", unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("📋", "Quality Hold Registry", "tml-nav-quality-holds", "Quality Hold Registry"), unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("📱", "Telegram Dispatcher", "tml-nav-telegram", "Telegram Dispatcher"), unsafe_allow_html=True)
+    st.markdown(_tml_nav_link("🧩", "Cockpit &amp; Wiring Reports", "tml-nav-cockpit-wiring", "Cockpit & Wiring Shortage Reports"), unsafe_allow_html=True)
+
+    st.markdown("<hr class='tml-nav-divider'/>", unsafe_allow_html=True)
+    st.markdown(
+        "<a class='tml-nav-top-btn' href='#tml-nav-top' "
+        "onclick=\"if(window.__tmlNavTo){window.__tmlNavTo(null,'tml-nav-top');} return false;\">"
+        "🔝 Back to Top</a>",
+        unsafe_allow_html=True
+    )
+
+st.markdown("<div id='tml-nav-top'></div>", unsafe_allow_html=True)
+
 # Render the Title Card
 with col_title_card:
     _last_gen = st.session_state.get('last_generated_at')
@@ -1052,6 +1263,7 @@ default_bom_path = detected_files.get('BOM')
 default_float_path = detected_files.get('FLOAT_REPORT') or detected_files.get('FLOAT_PAINT_SUMMARY')
 default_core_available = (db_bom_exists or default_bom_path is not None) and default_float_path is not None
 
+st.markdown("<div id='tml-nav-control-panel'></div>", unsafe_allow_html=True)
 config_expander = st.expander(
     "⚙️ Control Panel: File Uploads & Engine Starting Stocks (Click to Expand/Collapse)",
     expanded=not default_core_available and not st.session_state.get('run_report', False)
@@ -2330,6 +2542,7 @@ if active_clearance_shortage_alerts:
     alert_box_html += "</div></div>"
     st.markdown(alert_box_html, unsafe_allow_html=True)
 
+st.markdown("<div id='tml-nav-tabs-bar'></div>", unsafe_allow_html=True)
 # Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
 tcf_tabs = st.tabs([
     "📈 Summary Report & Excel Download",
@@ -2446,6 +2659,7 @@ with tcf_tabs[2]:
     
     # Subtab 1: Queue
     with line_subtabs[0]:
+        st.markdown("<div id='tml-nav-tcf1'></div>", unsafe_allow_html=True)
         st.markdown("### TCF1 FIFO Buffer Queue Status")
         if tcf1_alloc_df.empty:
             st.info("No active cabs in TCF1 PBS queue.")
@@ -2664,6 +2878,7 @@ with tcf_tabs[3]:
     
     # Subtab 1: Queue
     with line_subtabs_tcf2[0]:
+        st.markdown("<div id='tml-nav-tcf2'></div>", unsafe_allow_html=True)
         st.markdown("### TCF2 FIFO Buffer Queue Status")
         if tcf2_alloc_df.empty:
             st.info("No active cabs in TCF2 PBS queue.")
@@ -2866,6 +3081,7 @@ with tcf_tabs[4]:
 
 # ----------------- TAB 6: QUALITY HOLD REGISTRY -----------------
 with tcf_tabs[5]:
+    st.markdown("<div id='tml-nav-quality-holds'></div>", unsafe_allow_html=True)
     st.markdown("### 📋 Quality Hold Registry")
     st.markdown("Overview of all vehicles currently placed on quality hold in the Paint Shop and PBS buffer.")
     
@@ -3007,6 +3223,7 @@ with tcf_tabs[5]:
 
 # ----------------- TAB 7: TELEGRAM DISPATCHER -----------------
 with tcf_tabs[6]:
+    st.markdown("<div id='tml-nav-telegram'></div>", unsafe_allow_html=True)
     st.markdown("### 📱 Telegram Report Dispatcher")
     st.markdown("Send live shift production summaries and material shortage alerts directly to Telegram channels, groups, or planners.")
 
@@ -3574,6 +3791,7 @@ TCF2: {tcf2_pbs_detail_str}"""
 with tcf_tabs[0]:
 
     # --- SECTION 0: SHOP-WISE PLANT PRODUCTION SUMMARY ---
+    st.markdown("<div id='tml-nav-production-summary'></div>", unsafe_allow_html=True)
     if shop_totals is not None or shop_vehicles_df is not None:
         st.markdown("### 🏭 Shop-Wise Plant Production Summary (Daily Report)")
         if shop_totals:
@@ -3781,6 +3999,7 @@ with tcf_tabs[0]:
         st.markdown("---")
 
     # --- SECTION 0.5: HOURLY PRODUCTION & GENERATION TRACKER (TCF1 & TCF2) ---
+    st.markdown("<div id='tml-nav-hourly-tracker'></div>", unsafe_allow_html=True)
     if hourly_df is not None and not hourly_df.empty:
         st.markdown("### ⏱️ Hourly Production & Line Generation Tracker")
         st.caption("Live hour-by-hour tracking of VIN Generation and TCF Dropping across TCF1 and TCF2 assembly lines (Format: **Hourly Output [Shift Cumulative Output]**).")
@@ -4218,6 +4437,7 @@ with tcf_tabs[0]:
         )
         st.markdown("---")
 
+    st.markdown("<div id='tml-nav-paint-float'></div>", unsafe_allow_html=True)
     st.markdown("### 📊 Paint Shop Float Summary")
     st.markdown("""
         This report displays the paint shop buffer status by stage and model, matching the exact layout of the paint shop tracker sheet.
@@ -4550,6 +4770,7 @@ with tcf_tabs[0]:
         
         # ----------------- ENGINE & BATTERY REQUIREMENT SUMMARY REPORT -----------------
         st.markdown("<div style='height: 1.5rem;'></div>", unsafe_allow_html=True)
+        st.markdown("<div id='tml-nav-engine-battery'></div>", unsafe_allow_html=True)
         st.markdown("### 📊 Engine & Battery Requirement Summary")
         st.markdown("""
             This report summarizes raw engine inventory status against paint shop float and computes clear-to-build requirements.
@@ -5485,6 +5706,7 @@ with tcf_tabs[0]:
 
 # ----------------- TAB 2: COCKPIT & WIRING SHORTAGE REPORTS -----------------
 with tcf_tabs[1]:
+    st.markdown("<div id='tml-nav-cockpit-wiring'></div>", unsafe_allow_html=True)
     st.markdown("### 🧩 Cockpit & Wiring Shortage Reports")
     st.markdown("""
         Real-time shortage monitoring for **Cockpit Assemblies** and **Front Wiring Harnesses** matching engine summary models across TCF1 and TCF2 lines.
