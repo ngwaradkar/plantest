@@ -1044,38 +1044,6 @@ all_categories = [
 
 loaded_data = {}
 
-# ----------------- SIDEBAR NAVIGATION -----------------
-# Main application navigation. The selected item controls which report/page
-# is displayed below while keeping the existing data-processing workflow intact.
-sidebar_options = [
-    "⚙️ Control Panel: File Uploads & Engine Starting Stocks",
-    "📈 Summary Report & Excel Download",
-    "🧩 Cockpit & Wiring Shortage Reports",
-    "🏭 TCF 1 Line (Altroz/Punch/Nova)",
-    "🏭 TCF 2 Line (Harrier/Safari)",
-    "🔍 Total Float Details & Search",
-    "📋 Quality Hold Registry",
-    "📱 Telegram Dispatcher",
-]
-
-if "active_section" not in st.session_state:
-    st.session_state.active_section = "📈 Summary Report & Excel Download"
-
-with st.sidebar:
-    st.markdown("## 🧭 Navigation")
-    st.caption("Select a module to open it in the main workspace.")
-    selected_section = st.radio(
-        "Application Modules",
-        options=sidebar_options,
-        index=sidebar_options.index(st.session_state.active_section)
-            if st.session_state.active_section in sidebar_options else 1,
-        key="sidebar_module_navigation",
-        label_visibility="collapsed",
-    )
-    st.session_state.active_section = selected_section
-    st.markdown("---")
-    st.caption("Plant TML Planner")
-
 # ----------------- CONTROL CENTER (UPLOADS & ENGINE STOCKS) -----------------
 # We put the control panel in a clean main-body expander.
 # The expander starts collapsed if the core files are already auto-loaded.
@@ -1086,7 +1054,7 @@ default_core_available = (db_bom_exists or default_bom_path is not None) and def
 
 config_expander = st.expander(
     "⚙️ Control Panel: File Uploads & Engine Starting Stocks (Click to Expand/Collapse)",
-    expanded=(st.session_state.active_section == "⚙️ Control Panel: File Uploads & Engine Starting Stocks") or (not default_core_available and not st.session_state.get('run_report', False))
+    expanded=not default_core_available and not st.session_state.get('run_report', False)
 )
 
 with config_expander:
@@ -2362,9 +2330,16 @@ if active_clearance_shortage_alerts:
     alert_box_html += "</div></div>"
     st.markdown(alert_box_html, unsafe_allow_html=True)
 
-# ----------------- SIDEBAR-DRIVEN PAGE CONTENT -----------------
-# The former top-level tabs are now controlled by the sidebar navigation.
-
+# Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
+tcf_tabs = st.tabs([
+    "📈 Summary Report & Excel Download",
+    "🧩 Cockpit & Wiring Shortage Reports",
+    "🏭 TCF 1 Line (Altroz/Punch/Nova)", 
+    "🏭 TCF 2 Line (Harrier/Safari)", 
+    "🔍 Total Float Details & Search",
+    "📋 Quality Hold Registry",
+    "📱 Telegram Dispatcher"
+])
 
 # Helper function to style allocation dataframe rows
 def style_alloc_table(df):
@@ -2450,7 +2425,7 @@ def plot_stock_chart(start, true, final, title):
     st.pyplot(fig)
 
 # ----------------- TAB 3: TCF 1 LINE -----------------
-if st.session_state.active_section == "🏭 TCF 1 Line (Altroz/Punch/Nova)":
+with tcf_tabs[2]:
     # KPIs
     ready_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf1_alloc_df.empty else 0
     blocked_count = len(tcf1_alloc_df[tcf1_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf1_alloc_df.empty else 0
@@ -2668,7 +2643,7 @@ if st.session_state.active_section == "🏭 TCF 1 Line (Altroz/Punch/Nova)":
         render_total_float_details_view(temp_float_df, default_line="TCF1")
 
 # ----------------- TAB 4: TCF 2 LINE -----------------
-if st.session_state.active_section == "🏭 TCF 2 Line (Harrier/Safari)":
+with tcf_tabs[3]:
     # KPIs
     ready_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '✅ Ready for TCF']) if not tcf2_alloc_df.empty else 0
     blocked_count_tcf2 = len(tcf2_alloc_df[tcf2_alloc_df['STATUS'] == '🚫 Blocked']) if not tcf2_alloc_df.empty else 0
@@ -2886,11 +2861,11 @@ if st.session_state.active_section == "🏭 TCF 2 Line (Harrier/Safari)":
         render_total_float_details_view(temp_float_df, default_line="TCF2")
 
 # ----------------- TAB 5: TOTAL FLOAT DETAILS & SEARCH -----------------
-if st.session_state.active_section == "🔍 Total Float Details & Search":
+with tcf_tabs[4]:
     render_total_float_details_view(temp_float_df, default_line="All")
 
 # ----------------- TAB 6: QUALITY HOLD REGISTRY -----------------
-if st.session_state.active_section == "📋 Quality Hold Registry":
+with tcf_tabs[5]:
     st.markdown("### 📋 Quality Hold Registry")
     st.markdown("Overview of all vehicles currently placed on quality hold in the Paint Shop and PBS buffer.")
     
@@ -3031,7 +3006,7 @@ if st.session_state.active_section == "📋 Quality Hold Registry":
 
 
 # ----------------- TAB 7: TELEGRAM DISPATCHER -----------------
-if st.session_state.active_section == "📱 Telegram Dispatcher":
+with tcf_tabs[6]:
     st.markdown("### 📱 Telegram Report Dispatcher")
     st.markdown("Send live shift production summaries and material shortage alerts directly to Telegram channels, groups, or planners.")
 
@@ -3596,7 +3571,7 @@ TCF2: {tcf2_pbs_detail_str}"""
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
 # ----------------- TAB 1: SUMMARY REPORT & EXCEL DOWNLOAD -----------------
-if st.session_state.active_section == "📈 Summary Report & Excel Download":
+with tcf_tabs[0]:
 
     # --- SECTION 0: SHOP-WISE PLANT PRODUCTION SUMMARY ---
     if shop_totals is not None or shop_vehicles_df is not None:
@@ -5509,7 +5484,7 @@ if st.session_state.active_section == "📈 Summary Report & Excel Download":
 
 
 # ----------------- TAB 2: COCKPIT & WIRING SHORTAGE REPORTS -----------------
-if st.session_state.active_section == "🧩 Cockpit & Wiring Shortage Reports":
+with tcf_tabs[1]:
     st.markdown("### 🧩 Cockpit & Wiring Shortage Reports")
     st.markdown("""
         Real-time shortage monitoring for **Cockpit Assemblies** and **Front Wiring Harnesses** matching engine summary models across TCF1 and TCF2 lines.
