@@ -6,11 +6,8 @@ import re
 import io
 import matplotlib.pyplot as plt
 import altair as alt
-import importlib
 import data_loader as dl
-importlib.reload(dl)
 import allocation_engine as ae
-importlib.reload(ae)
 import datetime
 from streamlit_paste_button import paste_image_button
 from streamlit_autorefresh import st_autorefresh
@@ -65,11 +62,11 @@ def perform_onedrive_sync(url):
 
 # OneDrive Auto-Sync Logic & Telegram 15-Minute Auto-Send Logic
 db_onedrive_url = dl.load_metadata('onedrive_url', '')
-db_auto_sync = dl.load_metadata('onedrive_auto_sync', 'False') == 'True'
-db_tg_auto_send = dl.load_metadata('telegram_auto_send_15m', 'False') == 'True'
+db_auto_sync = str(dl.load_metadata('onedrive_auto_sync', 'True')).lower() == 'true'
+db_tg_auto_send = str(dl.load_metadata('telegram_auto_send_15m', 'False')).lower() == 'true'
 
 if db_tg_auto_send or st.session_state.get('telegram_auto_send_15m', False):
-    st_autorefresh(interval=20 * 1000, key="tg_auto_send_refresh")
+    st_autorefresh(interval=60 * 1000, key="tg_auto_send_refresh")
 elif db_auto_sync:
     st_autorefresh(interval=5 * 60 * 1000, key="onedrive_refresh")
 
@@ -1699,8 +1696,8 @@ try:
         if 'TCF2_COCKPIT_STOCK' in loaded_data:
             tcf2_cockpit_start, tcf2_cockpit_vc_map = dl.load_stock_grouped(
                 loaded_data['TCF2_COCKPIT_STOCK'],
-                sheet_name='Fresh vin PPC',
-                vc_col_idx=3, part_col_idx=1, qty_col_idx=9, skip_rows=3
+                sheet_name='Fresh VIN PPC',
+                vc_col_idx=3, part_col_idx=1, qty_col_idx=10, skip_rows=3
             )
             
         # Load Engine Stock from data_editor
