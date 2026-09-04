@@ -1094,7 +1094,7 @@ with config_expander:
                 uploaded_files = st.file_uploader(
                     "Upload plant reports to replace existing ones",
                     accept_multiple_files=True,
-                    help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
+                    help="Upload raw spreadsheets (Float, Wiring, Cockpit WH, or VGL). They will automatically replace older files on disk."
                 )
             
             # Process uploads immediately, saving to session state buffers and optionally to disk
@@ -1144,7 +1144,7 @@ with config_expander:
                         except Exception:
                             pass
                         
-                        st.toast(f"✅ Loaded {category.replace('_',' ')}: {uploaded_file.name}", icon="✅")
+                        st.toast(f"✅ Loaded {category.replace('_',' ').replace('COCKPIT', 'COCKPIT WH')}: {uploaded_file.name}", icon="✅")
                         replaced_any = True
                 
                 # Record that we processed these files
@@ -1199,7 +1199,7 @@ with config_expander:
                         loaded_data[category] = detected_path
                     continue
                     
-                display_name = category.replace('_',' ').replace('VGL', 'VIN Generation')
+                display_name = category.replace('_',' ').replace('VGL', 'VIN Generation').replace('COCKPIT', 'COCKPIT WH')
                 if category in ['TCF1_VGL', 'TCF2_VGL']:
                     display_name = f"DPT {display_name}"
                 elif category == 'HOURLY_PRODUCTION':
@@ -2330,7 +2330,7 @@ if active_clearance_shortage_alerts:
 # Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
 tcf_tabs = st.tabs([
     "📈 Summary Report & Excel Download",
-    "🧩 Cockpit & Wiring Shortage Reports",
+    "🧩 Cockpit WH & Wiring Shortage Reports",
     "🏭 TCF 1 Line (Altroz/Punch/Nova)", 
     "🏭 TCF 2 Line (Harrier/Safari)", 
     "🔍 Total Float Details & Search",
@@ -2499,10 +2499,10 @@ with tcf_tabs[2]:
                     ),
                     "Cab location": st.column_config.TextColumn("Cab Location", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
-                    "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
+                    "Cockpit_Part": st.column_config.TextColumn("Cockpit WH Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
                     "Engine_Stock_After": st.column_config.NumberColumn("Eng Stock After", disabled=True),
-                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK Stock After", disabled=True),
+                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK WH Stock After", disabled=True),
                     "Wiring_Stock_After": st.column_config.NumberColumn("WH Stock After", disabled=True),
                 },
             )
@@ -2717,10 +2717,10 @@ with tcf_tabs[3]:
                     ),
                     "Cab location": st.column_config.TextColumn("Cab Location", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
-                    "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
+                    "Cockpit_Part": st.column_config.TextColumn("Cockpit WH Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
                     "Engine_Stock_After": st.column_config.NumberColumn("Eng Stock After", disabled=True),
-                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK Stock After", disabled=True),
+                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK WH Stock After", disabled=True),
                     "Wiring_Stock_After": st.column_config.NumberColumn("WH Stock After", disabled=True),
                 },
             )
@@ -4995,7 +4995,7 @@ with tcf_tabs[0]:
                                 today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + cnt
 
             table_rows = []
-            header_part_name = 'Cockpit Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
+            header_part_name = 'Cockpit WH Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
             
             stk_1 = stock_tcf1 if stock_tcf1 is not None else {}
             stk_2 = stock_tcf2 if stock_tcf2 is not None else {}
@@ -5075,17 +5075,17 @@ with tcf_tabs[0]:
                         'Excess Qty': vin_nova - c_q
                     })
                     
-        # 3. Cockpit
+        # 3. Cockpit WH
         if df_cpt_all is not None and not df_cpt_all.empty:
             for idx, r_c in df_cpt_all.iterrows():
-                p_hdr = 'Cockpit Part Number'
+                p_hdr = 'Cockpit WH Part Number'
                 c_no = r_c.get(p_hdr, '')
                 m_descr = r_c.get('Model', '')
                 cl_c = r_c.get('Clearance After 6:30AM', 0)
                 vin_c = r_c.get('Today VIN', 0)
                 if isinstance(cl_c, (int, float)) and vin_c > cl_c:
                     excess_alerts.append({
-                        'Category': 'Cockpit',
+                        'Category': 'Cockpit WH',
                         'Model / Part': f"{c_no} ({m_descr})",
                         'Clearance 6:30 AM': cl_c,
                         'Today VIN': vin_c,
@@ -5372,7 +5372,7 @@ with tcf_tabs[0]:
                     col_letter = openpyxl.utils.get_column_letter(col[0].column)
                     ws.column_dimensions[col_letter].width = max(max_len + 3, 14)
 
-            format_openpyxl_shortage_sheet('Cockpit Shortage', df_cpt_shortage, 'Cockpit Part Number')
+            format_openpyxl_shortage_sheet('Cockpit WH Shortage', df_cpt_shortage, 'Cockpit WH Part Number')
             format_openpyxl_shortage_sheet('Wiring Shortage', df_wir_shortage, 'Wiring Part Number')
             
             # Sheet: Hourly Production (if available)
@@ -5425,10 +5425,10 @@ with tcf_tabs[0]:
                 
         excel_data = excel_buffer.getvalue()
 
-        # Build 2-Sheet Excel workbook for Cockpit & Wiring Report (All Parts: Cockpit, Wiring)
+        # Build 2-Sheet Excel workbook for Cockpit WH & Wiring Report (All Parts: Cockpit WH, Wiring)
         all_parts_excel_buffer = io.BytesIO()
         with pd.ExcelWriter(all_parts_excel_buffer, engine='openpyxl') as writer_all:
-            format_openpyxl_shortage_sheet('Cockpit', df_cpt_all, 'Cockpit Part Number', target_writer=writer_all)
+            format_openpyxl_shortage_sheet('Cockpit WH', df_cpt_all, 'Cockpit WH Part Number', target_writer=writer_all)
             format_openpyxl_shortage_sheet('Wiring', df_wir_all, 'Wiring Part Number', target_writer=writer_all)
         all_parts_excel_data = all_parts_excel_buffer.getvalue()
         
@@ -5459,7 +5459,7 @@ with tcf_tabs[0]:
                     with fb1:
                         in_engine = st.text_input("Engine / Battery Part No.")
                     with fb2:
-                        in_cockpit = st.text_input("Cockpit Part No.")
+                        in_cockpit = st.text_input("Cockpit WH Part No.")
                     with fb3:
                         in_wiring = st.text_input("Front Wiring Part No.")
                     submitted = st.form_submit_button("💾 Save BOM Entry")
@@ -5482,9 +5482,9 @@ with tcf_tabs[0]:
 
 # ----------------- TAB 2: COCKPIT & WIRING SHORTAGE REPORTS -----------------
 with tcf_tabs[1]:
-    st.markdown("### 🧩 Cockpit & Wiring Shortage Reports")
+    st.markdown("### 🧩 Cockpit WH & Wiring Shortage Reports")
     st.markdown("""
-        Real-time shortage monitoring for **Cockpit Assemblies** and **Front Wiring Harnesses** matching engine summary models across TCF1 and TCF2 lines.
+        Real-time shortage monitoring for **Cockpit WH Assemblies** and **Front Wiring Harnesses** matching engine summary models across TCF1 and TCF2 lines.
     """)
 
     cpt_sh_df = df_cpt_shortage if 'df_cpt_shortage' in locals() and df_cpt_shortage is not None else pd.DataFrame()
@@ -5493,7 +5493,7 @@ with tcf_tabs[1]:
     wir_all_df = df_wir_all if 'df_wir_all' in locals() and df_wir_all is not None else pd.DataFrame()
 
     if (cpt_all_df is None or cpt_all_df.empty) and (wir_all_df is None or wir_all_df.empty):
-        st.info("ℹ️ Please load Paint Float and BOM data in the Control Panel to view Cockpit & Wiring Shortage Reports.")
+        st.info("ℹ️ Please load Paint Float and BOM data in the Control Panel to view Cockpit WH & Wiring Shortage Reports.")
     else:
         # Top KPI Summary Cards
         cpt_sh_count = len(cpt_sh_df) if cpt_sh_df is not None else 0
@@ -5504,7 +5504,7 @@ with tcf_tabs[1]:
         kpi_sh1, kpi_sh2, kpi_sh3, kpi_sh4 = st.columns(4)
         with kpi_sh1:
             st.metric(
-                label="🚗 Cockpit Shortages",
+                label="🚗 Cockpit WH Shortages",
                 value=f"{cpt_sh_count} Part{'s' if cpt_sh_count != 1 else ''}",
                 delta="Critical Shortage" if cpt_sh_count > 0 else "All Covered",
                 delta_color="inverse" if cpt_sh_count > 0 else "normal"
@@ -5518,7 +5518,7 @@ with tcf_tabs[1]:
             )
         with kpi_sh3:
             st.metric(
-                label="📦 Monitored Cockpits",
+                label="📦 Monitored Cockpit WH",
                 value=f"{tot_cpt_count} Part Numbers"
             )
         with kpi_sh4:
@@ -5618,18 +5618,18 @@ with tcf_tabs[1]:
                 ]
             return df_out
 
-        filtered_cpt = _apply_sh_filters(target_cpt, "Cockpit Part Number")
+        filtered_cpt = _apply_sh_filters(target_cpt, "Cockpit WH Part Number")
         filtered_wir = _apply_sh_filters(target_wir, "Wiring Part Number")
 
         st.markdown("---")
-        st.markdown("#### 🚗 Cockpit Shortage Report")
+        st.markdown("#### 🚗 Cockpit WH Shortage Report")
         if filtered_cpt is not None and not filtered_cpt.empty:
-            st.markdown(render_html_formatted_shortage(filtered_cpt, "Cockpit Part Number", is_dark_theme), unsafe_allow_html=True)
+            st.markdown(render_html_formatted_shortage(filtered_cpt, "Cockpit WH Part Number", is_dark_theme), unsafe_allow_html=True)
         else:
             if show_shortages_only:
-                st.success("✅ No Cockpit Shortages detected for selected filters! All required cockpit assemblies are covered by clearance stock.")
+                st.success("✅ No Cockpit WH Shortages detected for selected filters! All required cockpit WH assemblies are covered by clearance stock.")
             else:
-                st.info("No cockpit records match your filters.")
+                st.info("No cockpit WH records match your filters.")
 
         st.markdown("#### ⚡ Wiring Harness Shortage Report")
         if filtered_wir is not None and not filtered_wir.empty:
@@ -5645,21 +5645,21 @@ with tcf_tabs[1]:
         exp_sh1, exp_sh2 = st.columns(2)
         with exp_sh1:
             st.download_button(
-                label="📥 Download Cockpit & Wiring Report (All Parts - 2 Sheets)",
+                label="📥 Download Cockpit WH & Wiring Report (All Parts - 2 Sheets)",
                 data=all_parts_excel_data,
-                file_name="Cockpit_and_Wiring_Report_All_Parts.xlsx",
+                file_name="Cockpit_WH_and_Wiring_Report_All_Parts.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_cockpit_wiring_tab_all_parts"
             )
         with exp_sh2:
             sh_excel_buf = io.BytesIO()
             with pd.ExcelWriter(sh_excel_buf, engine='openpyxl') as writer_sh_only:
-                format_openpyxl_shortage_sheet('Cockpit Shortage', cpt_sh_df, 'Cockpit Part Number', target_writer=writer_sh_only)
+                format_openpyxl_shortage_sheet('Cockpit WH Shortage', cpt_sh_df, 'Cockpit WH Part Number', target_writer=writer_sh_only)
                 format_openpyxl_shortage_sheet('Wiring Shortage', wir_sh_df, 'Wiring Part Number', target_writer=writer_sh_only)
             st.download_button(
                 label="📥 Download Critical Shortages Only (Excel)",
                 data=sh_excel_buf.getvalue(),
-                file_name="Cockpit_and_Wiring_Critical_Shortages.xlsx",
+                file_name="Cockpit_WH_and_Wiring_Critical_Shortages.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_cockpit_wiring_tab_critical_only"
             )
