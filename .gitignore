@@ -31,3 +31,13 @@ update/
 .vscode/
 .idea/
 .agents/
+
+# Standalone subprojects and archives
+Portfolio-Website/
+android_app/
+*.zip
+
+# Temporary scratch & helper scripts
+fix*.py
+update_callers.py
+test_gateway.py

@@ -1,13 +1,14 @@
 import pandas as pd
 import numpy as np
 
-def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
+def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col, bom_lookup=None):
     """
     Computes True Current Stock = Shift Start Stock - Consumed Parts.
     - shift_start_stock: dict of {part_number: qty}
     - tcf_drops: DataFrame of cabs built this shift
     - bom: DataFrame of BOM mappings (Short VC -> Engine, Cockpit, Front Wiring)
     - bom_part_col: column in BOM corresponding to this part type ('Engine', 'Cockpit', 'Front Wiring')
+    - bom_lookup: dict mapping Short VC -> dict of BOM row
     
     Returns:
       - true_stock: dict of {part_number: true_qty}
@@ -22,22 +23,28 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col):
     if tcf_drops is None or tcf_drops.empty or bom is None or bom.empty:
         return true_stock, consumed, warnings
         
-    for idx, row in tcf_drops.iterrows():
-        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
+    for row_dict in tcf_drops.to_dict('records'):
+        full_vc = row_dict.get('VEHICLE CODE') if pd.notna(row_dict.get('VEHICLE CODE')) else row_dict.get('VC')
         if pd.isna(full_vc) or not full_vc:
             continue
         short_vc = str(full_vc).strip()[:9]
         
         # Look up in BOM
-        bom_rows = bom[bom['Short Vehicle Code'] == short_vc]
-        if bom_rows.empty:
-            continue
+        if bom_lookup:
+            bom_row = bom_lookup.get(short_vc)
+            if not bom_row:
+                continue
+            part_no = bom_row.get(bom_part_col)
+        else:
+            bom_rows = bom[bom['Short Vehicle Code'] == short_vc]
+            if bom_rows.empty:
+                continue
+            part_no = bom_rows.iloc[0].get(bom_part_col)
             
-        part_no = bom_rows.iloc[0].get(bom_part_col)
         if not part_no or str(part_no).strip() in ['0', 'None', 'nan']:
             continue
             
-        cnt = int(row.get('VIN_Count', 1)) if pd.notna(row.get('VIN_Count')) and str(row.get('VIN_Count')).isdigit() else 1
+        cnt = int(row_dict.get('VIN_Count', 1)) if pd.notna(row_dict.get('VIN_Count')) and str(row_dict.get('VIN_Count')).isdigit() else 1
         if part_no in true_stock:
             true_stock[part_no] -= cnt
             consumed[part_no] += cnt
@@ -88,7 +95,7 @@ def _is_model_trim_matched(cab_model, cab_sales_desc, target_model, target_trims
     return False
 
 
-def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_nova=None, model_shortages=None):
+def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_nova=None, model_shortages=None, bom_lookup=None):
     """
     Runs the FIFO allocation loop for PBS cabs.
     - pbs_queue: DataFrame of cabs in PBS (sorted FIFO by PBS LIFT, HOLD BY is null)
@@ -98,6 +105,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
     - true_wiring: dict of true stock for Wiring (None if not available)
     - true_nova: dict of Punch EV material stocks (Battery, Combo, Tube Frame(Craddle), Subframe, RTB)
     - model_shortages: list of dicts [{'Model': '...', 'Trims': '...', 'Part Name': '...', 'Stock': int}]
+    - bom_lookup: dict mapping short_vc -> row dict
     
     Returns:
       - results: list of dicts representing allocated cabs
@@ -123,22 +131,28 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
         }
         
     # Process cabs in FIFO order
-    for idx, row in pbs_queue.iterrows():
-        biw_num = row.get('BIW NUMBER')
-        vin = row.get('VIN')
-        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
-        pbs_lift = row.get('PBS LIFT')
-        colour = row.get('COLOUR')
-        product = row.get('PRODUCT')
-        sales_desc = row.get('SALES DESCRIPTION')
-        shop = row.get('SHOP')
+    for row_dict in pbs_queue.to_dict('records'):
+        biw_num = row_dict.get('BIW NUMBER')
+        vin = row_dict.get('VIN')
+        full_vc = row_dict.get('VEHICLE CODE') if pd.notna(row_dict.get('VEHICLE CODE')) else row_dict.get('VC')
+        pbs_lift = row_dict.get('PBS LIFT')
+        colour = row_dict.get('COLOUR')
+        product = row_dict.get('PRODUCT')
+        sales_desc = row_dict.get('SALES DESCRIPTION')
+        shop = row_dict.get('SHOP')
         
         short_vc = str(full_vc).strip()[:9]
         
         # BOM Lookup
-        bom_rows = bom[bom['Short Vehicle Code'] == short_vc] if bom is not None else pd.DataFrame()
-        
-        if bom_rows.empty:
+        bom_entry = None
+        if bom_lookup:
+            bom_entry = bom_lookup.get(short_vc)
+        elif bom is not None:
+            bom_rows = bom[bom['Short Vehicle Code'] == short_vc]
+            if not bom_rows.empty:
+                bom_entry = bom_rows.iloc[0].to_dict()
+                
+        if not bom_entry:
             results.append({
                 'BIW NUMBER': biw_num,
                 'VIN': vin,
@@ -160,7 +174,6 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
             })
             continue
             
-        bom_entry = bom_rows.iloc[0]
         eng_part = bom_entry.get('Engine')
         ck_part = bom_entry.get('Cockpit')
         wh_part = bom_entry.get('Front Wiring')
@@ -391,12 +404,13 @@ def get_detailed_paint_summary_stage(row):
     else:
         return 'PT BYPASS'
 
-def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
+def calculate_stagewise_shortage(df_float_stages, bom, true_stocks, bom_lookup=None):
     """
     Computes material requirements and shortages for each stage of the paint float.
     - df_float_stages: Float report with 'Paint_Stage' column and 'SHOP' column
     - bom: Master BOM DataFrame
     - true_stocks: dict containing {'engine': dict, 'cockpit': dict, 'wiring': dict} True Stock pools
+    - bom_lookup: dict mapping short_vc -> row dict
     
     Returns:
       - shortage_report: DataFrame with columns: Stage, TCF Line, Aggregate Type, Part Number, Demand in Stage, Cumulative Demand, True Stock, Net Balance, Status
@@ -407,27 +421,32 @@ def calculate_stagewise_shortage(df_float_stages, bom, true_stocks):
     # Accumulate demand per (stage, agg_type, part_number, shop)
     demand_counts = {}
     
-    for idx, row in df_float_stages.iterrows():
-        stage = row['Paint_Stage']
+    for row_dict in df_float_stages.to_dict('records'):
+        stage = row_dict.get('Paint_Stage')
         if stage not in stage_order:
             continue
             
-        shop = row.get('SHOP')
+        shop = row_dict.get('SHOP')
         if pd.isna(shop) or not str(shop).strip():
             shop = 'Unknown'
         else:
             shop = str(shop).strip()
             
-        full_vc = row.get('VEHICLE CODE') if pd.notna(row.get('VEHICLE CODE')) else row.get('VC')
+        full_vc = row_dict.get('VEHICLE CODE') if pd.notna(row_dict.get('VEHICLE CODE')) else row_dict.get('VC')
         short_vc = str(full_vc).strip()[:9] if pd.notna(full_vc) else ''
         
         # Look up in BOM
-        bom_rows = bom[bom['Short Vehicle Code'] == short_vc] if bom is not None else pd.DataFrame()
-        if bom_rows.empty:
+        bom_entry = None
+        if bom_lookup:
+            bom_entry = bom_lookup.get(short_vc)
+        elif bom is not None:
+            bom_rows = bom[bom['Short Vehicle Code'] == short_vc]
+            if not bom_rows.empty:
+                bom_entry = bom_rows.iloc[0].to_dict()
+                
+        if not bom_entry:
             continue
             
-        bom_entry = bom_rows.iloc[0]
-        
         parts = {
             'Engine': str(bom_entry.get('Engine')).strip() if bom_entry.get('Engine') else None,
             'Cockpit': str(bom_entry.get('Cockpit')).strip() if bom_entry.get('Cockpit') else None,

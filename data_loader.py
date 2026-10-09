@@ -1069,6 +1069,20 @@ def load_metadata(key, default=None):
     finally:
         conn.close()
 
+def get_all_metadata():
+    """Loads all metadata values from the database in a single connection."""
+    init_metadata_db()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM metadata")
+        rows = cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
 @st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_paint_summary_by_vc(filepath_or_buffer):
     """

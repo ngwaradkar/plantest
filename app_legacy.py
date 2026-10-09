@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import altair as alt
 import data_loader as dl
 import allocation_engine as ae
-import report_process
 import datetime
 from streamlit_paste_button import paste_image_button
 from streamlit_autorefresh import st_autorefresh
@@ -1095,7 +1094,7 @@ with config_expander:
                 uploaded_files = st.file_uploader(
                     "Upload plant reports to replace existing ones",
                     accept_multiple_files=True,
-                    help="Upload raw spreadsheets (Float, Wiring, Cockpit WH, or VGL). They will automatically replace older files on disk."
+                    help="Upload raw spreadsheets (Float, Wiring, Cockpit, or VGL). They will automatically replace older files on disk."
                 )
             
             # Process uploads immediately, saving to session state buffers and optionally to disk
@@ -1145,7 +1144,7 @@ with config_expander:
                         except Exception:
                             pass
                         
-                        st.toast(f"✅ Loaded {category.replace('_',' ').replace('COCKPIT', 'COCKPIT WH')}: {uploaded_file.name}", icon="✅")
+                        st.toast(f"✅ Loaded {category.replace('_',' ')}: {uploaded_file.name}", icon="✅")
                         replaced_any = True
                 
                 # Record that we processed these files
@@ -1200,7 +1199,7 @@ with config_expander:
                         loaded_data[category] = detected_path
                     continue
                     
-                display_name = category.replace('_',' ').replace('VGL', 'VIN Generation').replace('COCKPIT', 'COCKPIT WH')
+                display_name = category.replace('_',' ').replace('VGL', 'VIN Generation')
                 if category in ['TCF1_VGL', 'TCF2_VGL']:
                     display_name = f"DPT {display_name}"
                 elif category == 'HOURLY_PRODUCTION':
@@ -1697,8 +1696,8 @@ try:
         if 'TCF2_COCKPIT_STOCK' in loaded_data:
             tcf2_cockpit_start, tcf2_cockpit_vc_map = dl.load_stock_grouped(
                 loaded_data['TCF2_COCKPIT_STOCK'],
-                sheet_name='Fresh VIN PPC',
-                vc_col_idx=3, part_col_idx=1, qty_col_idx=10, skip_rows=3
+                sheet_name='Fresh vin PPC',
+                vc_col_idx=3, part_col_idx=1, qty_col_idx=9, skip_rows=3
             )
             
         # Load Engine Stock from data_editor
@@ -2331,11 +2330,11 @@ if active_clearance_shortage_alerts:
 # Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
 tcf_tabs = st.tabs([
     "📈 Summary Report & Excel Download",
-    "🧩 Cockpit WH & Wiring Shortage Reports",
+    "🧩 Cockpit & Wiring Shortage Reports",
     "🏭 TCF 1 Line (Altroz/Punch/Nova)", 
     "🏭 TCF 2 Line (Harrier/Safari)", 
     "🔍 Total Float Details & Search",
-    "📊 Ageing & Hold Cab Details",
+    "📋 Quality Hold Registry",
     "📱 Telegram Dispatcher"
 ])
 
@@ -2500,10 +2499,10 @@ with tcf_tabs[2]:
                     ),
                     "Cab location": st.column_config.TextColumn("Cab Location", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
-                    "Cockpit_Part": st.column_config.TextColumn("Cockpit WH Part", disabled=True),
+                    "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
                     "Engine_Stock_After": st.column_config.NumberColumn("Eng Stock After", disabled=True),
-                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK WH Stock After", disabled=True),
+                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK Stock After", disabled=True),
                     "Wiring_Stock_After": st.column_config.NumberColumn("WH Stock After", disabled=True),
                 },
             )
@@ -2718,10 +2717,10 @@ with tcf_tabs[3]:
                     ),
                     "Cab location": st.column_config.TextColumn("Cab Location", disabled=True),
                     "Engine_Part": st.column_config.TextColumn("Engine Part", disabled=True),
-                    "Cockpit_Part": st.column_config.TextColumn("Cockpit WH Part", disabled=True),
+                    "Cockpit_Part": st.column_config.TextColumn("Cockpit Part", disabled=True),
                     "Wiring_Part": st.column_config.TextColumn("Wiring Part", disabled=True),
                     "Engine_Stock_After": st.column_config.NumberColumn("Eng Stock After", disabled=True),
-                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK WH Stock After", disabled=True),
+                    "Cockpit_Stock_After": st.column_config.NumberColumn("CK Stock After", disabled=True),
                     "Wiring_Stock_After": st.column_config.NumberColumn("WH Stock After", disabled=True),
                 },
             )
@@ -2862,474 +2861,144 @@ with tcf_tabs[3]:
 with tcf_tabs[4]:
     render_total_float_details_view(temp_float_df, default_line="All")
 
-# ----------------- TAB 6: AGEING & HOLD CAB DETAILS -----------------
+# ----------------- TAB 6: QUALITY HOLD REGISTRY -----------------
 with tcf_tabs[5]:
-    st.markdown("### 📊 Ageing & Hold Cab Details")
-    st.markdown("Overview of stage-wise aging analysis (**BIW → PT**, **PT → PBS**, **PBS buffer**) and quality hold cabs categorized by agency and location from the PPC Float Report.")
-
-    # Session state initialization for aging
-    if "aging_holidays" not in st.session_state:
-        st.session_state.aging_holidays = []
-
-    # Detect default analysis date from float report source name
-    default_aging_date = datetime.date.today()
-    float_report_source_name = None
-    float_raw_bytes = None
-
-    if 'FLOAT_REPORT' in loaded_data:
-        fr_src = loaded_data['FLOAT_REPORT']
-        if isinstance(fr_src, str):
-            float_report_source_name = os.path.basename(fr_src)
-            if os.path.exists(fr_src):
-                try:
-                    with open(fr_src, "rb") as f_fr:
-                        float_raw_bytes = f_fr.read()
-                except Exception:
-                    pass
-        elif hasattr(fr_src, 'getvalue'):
-            try:
-                float_raw_bytes = fr_src.getvalue()
-                float_report_source_name = getattr(fr_src, 'name', 'PPC_Float_Report.xlsb')
-            except Exception:
-                pass
-
-    if not float_report_source_name and 'buffer_FLOAT_REPORT' in st.session_state:
-        b_fr = st.session_state['buffer_FLOAT_REPORT']
-        if hasattr(b_fr, 'getvalue'):
-            try:
-                float_raw_bytes = b_fr.getvalue()
-                float_report_source_name = getattr(b_fr, 'name', 'PPC_Float_Report.xlsb')
-            except Exception:
-                pass
-
-    if float_report_source_name:
-        parsed_aging_dt = report_process.extract_date_from_filename(float_report_source_name)
-        if parsed_aging_dt:
-            default_aging_date = parsed_aging_dt
-
-    if "aging_analysis_date" not in st.session_state:
-        st.session_state.aging_analysis_date = default_aging_date
-
-    # Control Panel
-    with st.container(border=True):
-        col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1.6, 2.6, 1.8])
-        with col_ctrl1:
-            sel_analysis_date = st.date_input(
-                "📅 Analysis Date",
-                value=st.session_state.aging_analysis_date,
-                key="input_aging_analysis_date",
-                help="Aging is calculated from stage entry timestamp up to this date."
-            )
-            st.session_state.aging_analysis_date = sel_analysis_date
-
-        with col_ctrl2:
-            st.markdown("<div style='font-size: 13px; font-weight: 600; margin-bottom: 4px;'>🏖️ Holiday Manager (Excluded Days)</div>", unsafe_allow_html=True)
-            col_h_input, col_h_add = st.columns([2.5, 1.2])
-            with col_h_input:
-                new_hol = st.date_input("Add Holiday", value=datetime.date.today(), key="picker_aging_hol", label_visibility="collapsed")
-            with col_h_add:
-                if st.button("➕ Add", key="btn_add_aging_hol", use_container_width=True):
-                    if new_hol not in st.session_state.aging_holidays:
-                        st.session_state.aging_holidays.append(new_hol)
-                        st.session_state.aging_holidays.sort()
-                        st.session_state.pop("aging_results", None)
-                        st.rerun()
-
-            if st.session_state.aging_holidays:
-                hol_labels = [f"{h.strftime('%d %b')} ({h.strftime('%a')})" for h in sorted(st.session_state.aging_holidays)]
-                st.caption(f"**{len(st.session_state.aging_holidays)} Excluded:** {', '.join(hol_labels)}")
-                if st.button("🗑️ Clear Holidays", key="btn_clear_aging_hols"):
-                    st.session_state.aging_holidays = []
-                    st.session_state.pop("aging_results", None)
-                    st.rerun()
-            else:
-                st.caption("No holidays excluded. All calendar days counted.")
-
-        with col_ctrl3:
-            st.markdown("<div style='font-size: 13px; font-weight: 600; margin-bottom: 4px;'>⚡ Ageing Engine</div>", unsafe_allow_html=True)
-            btn_calc_aging = st.button("🚀 Calculate Ageing", type="primary", use_container_width=True, key="btn_run_aging_calc")
-
-    # Optional Custom Float Report upload expander
-    with st.expander("📁 Float Report Source / Custom File Override (Optional)", expanded=False):
-        if float_report_source_name:
-            st.success(f"📌 Active Project Float Report: **{float_report_source_name}**")
-        elif float_df is not None and not float_df.empty:
-            st.info(f"📌 Using in-memory Float Report ({len(float_df)} records).")
+    st.markdown("### 📋 Quality Hold Registry")
+    st.markdown("Overview of all vehicles currently placed on quality hold in the Paint Shop and PBS buffer.")
+    
+    # 1. Compute PBS Quality Holds
+    if not pbs_on_hold.empty:
+        pbs_on_hold_cleaned = pbs_on_hold.drop_duplicates(subset=['BIW NUMBER']).sort_values(by=['SHOP', 'PBS LIFT'], ascending=[True, True]).copy()
+        if bom_df is not None and not bom_df.empty:
+            vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
+            short_vcs = pbs_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str[:9]
+            mapped_engines = short_vcs.map(vc_to_engine)
+            pbs_on_hold_cleaned['Model'] = mapped_engines.map(engine_to_model)
         else:
-            st.warning("⚠️ No PPC Float Report found in current dashboard state.")
-
-        tab_custom_file = st.file_uploader(
-            "Upload alternative PPC Float Report (XLSB, XLSX, XLS, CSV) for Aging Analysis only:",
-            type=["xlsb", "xlsx", "xls", "csv"],
-            key="aging_custom_file_uploader",
-            label_visibility="visible"
-        )
-        if tab_custom_file is not None:
-            float_raw_bytes = tab_custom_file.getvalue()
-            float_report_source_name = tab_custom_file.name
-            st.info(f"Using uploaded override file: **{float_report_source_name}**")
-
-    # Calculation logic triggered by button or automatic if not yet calculated
-    needs_calc = btn_calc_aging
-    if needs_calc:
-        with st.spinner("⏳ Calculating stage-wise aging and hold cab breakdowns..."):
-            try:
-                if float_raw_bytes:
-                    res_tuple = report_process.process_aging(
-                        float_raw_bytes,
-                        float_report_source_name or "float_report.xlsb",
-                        sel_analysis_date,
-                        st.session_state.aging_holidays
-                    )
-                elif float_df is not None and not float_df.empty:
-                    res_tuple = report_process.process_aging_from_df(
-                        float_df,
-                        sel_analysis_date,
-                        st.session_state.aging_holidays
-                    )
-                else:
-                    st.error("❌ No Float Report data available to calculate aging.")
-                    res_tuple = None
-
-                if res_tuple:
-                    st.session_state.aging_results = {
-                        'excel_bytes': res_tuple[0],
-                        'df_biw': res_tuple[1],
-                        'df_pt': res_tuple[2],
-                        'sum_biw': res_tuple[3],
-                        'sum_pt': res_tuple[4],
-                        'pbs_excel_bytes': res_tuple[5],
-                        'df_pbs': res_tuple[6],
-                        'sum_pbs': res_tuple[7],
-                        'hold_excel_bytes': res_tuple[8],
-                        'df_hold_cabs': res_tuple[9],
-                        'analysis_date': sel_analysis_date,
-                    }
-                    st.toast("✅ Aging & Hold Cab Reports calculated successfully!", icon="📊")
-            except Exception as e_aging:
-                st.error(f"❌ Failed to calculate aging: {e_aging}")
-                with st.expander("Detailed Traceback"):
-                    st.exception(e_aging)
-
-    # Render results
-    aging_res = st.session_state.get("aging_results")
-    if aging_res is None:
-        st.info("💡 Float data is ready. Click **'🚀 Calculate Ageing'** above to generate the full Aging & Hold Cab reports.")
+            pbs_on_hold_cleaned['Model'] = pd.Series(dtype='object', index=pbs_on_hold_cleaned.index)
+            
+        if 'PRODUCT' in pbs_on_hold_cleaned.columns:
+            is_tayrona = pbs_on_hold_cleaned['PRODUCT'].astype(str).str.strip().str.upper().str.contains('TAYRONA') | \
+                         pbs_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+        else:
+            is_tayrona = pbs_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+            
+        pbs_on_hold_cleaned['Model'] = np.where(is_tayrona, 'SAFARI EV', pbs_on_hold_cleaned['Model'])
+        pbs_on_hold_cleaned['Model'] = pbs_on_hold_cleaned['Model'].fillna('—')
+            
+        colour_col = None
+        for col in pbs_on_hold_cleaned.columns:
+            if str(col).strip().upper() in ['COLOUR', 'COLOR']:
+                colour_col = col
+                break
+        if colour_col:
+            pbs_on_hold_cleaned['Colour'] = pbs_on_hold_cleaned[colour_col].fillna('—')
+        else:
+            pbs_on_hold_cleaned['Colour'] = '—'
     else:
-        ad_res       = aging_res['analysis_date']
-        df_biw_res   = aging_res['df_biw']
-        df_pt_res    = aging_res['df_pt']
-        df_pbs_res   = aging_res['df_pbs']
-        df_hold_res  = aging_res['df_hold_cabs']
-        sum_biw_res  = aging_res['sum_biw']
-        sum_pt_res   = aging_res['sum_pt']
-        sum_pbs_res  = aging_res['sum_pbs']
-        ex_b_res     = aging_res['excel_bytes']
-        pbs_ex_b_res = aging_res['pbs_excel_bytes']
-        hold_ex_b_res= aging_res['hold_excel_bytes']
+        pbs_on_hold_cleaned = pd.DataFrame()
 
-        # KPI Metrics
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("🔵 BIW → PT", f"{len(df_biw_res)} cabs")
-        m2.metric("🟡 PT → PBS", f"{len(df_pt_res)} cabs")
-        m3.metric("🟢 PBS Buffer", f"{len(df_pbs_res)} cabs")
-        m4.metric("🔴 Hold Cabs", f"{len(df_hold_res)} cabs")
-        m5.metric("📅 Analysis Date", ad_res.strftime("%d %b %Y"))
-        m6.metric("🏖️ Holidays Excl.", f"{len(st.session_state.aging_holidays)}")
+    # 2. Compute Paint Shop Quality Holds (from PTCED to before PBS Lift)
+    if float_df is not None and not float_df.empty:
+        ps_hold_mask = float_df['PBS LIFT'].isna() & float_df['PTCED'].notna() & float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.strip() != 'nan')
+        paintshop_on_hold = float_df[ps_hold_mask].copy()
+    else:
+        paintshop_on_hold = pd.DataFrame()
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    if not paintshop_on_hold.empty:
+        paintshop_on_hold_cleaned = paintshop_on_hold.drop_duplicates(subset=['BIW NUMBER']).sort_values(by=['SHOP', 'PTCED'], ascending=[True, True]).copy()
+        if bom_df is not None and not bom_df.empty:
+            vc_to_engine = dict(zip(bom_df['Short Vehicle Code'].astype(str).str.strip(), bom_df['Engine'].astype(str).str.strip()))
+            short_vcs = paintshop_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str[:9]
+            mapped_engines = short_vcs.map(vc_to_engine)
+            paintshop_on_hold_cleaned['Model'] = mapped_engines.map(engine_to_model)
+        else:
+            paintshop_on_hold_cleaned['Model'] = pd.Series(dtype='object', index=paintshop_on_hold_cleaned.index)
+            
+        if 'PRODUCT' in paintshop_on_hold_cleaned.columns:
+            is_tayrona = paintshop_on_hold_cleaned['PRODUCT'].astype(str).str.strip().str.upper().str.contains('TAYRONA') | \
+                         paintshop_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+        else:
+            is_tayrona = paintshop_on_hold_cleaned['VEHICLE CODE'].astype(str).str.strip().str.startswith('54831927A')
+            
+        paintshop_on_hold_cleaned['Model'] = np.where(is_tayrona, 'SAFARI EV', paintshop_on_hold_cleaned['Model'])
+        paintshop_on_hold_cleaned['Model'] = paintshop_on_hold_cleaned['Model'].fillna('—')
+            
+        colour_col = None
+        for col in paintshop_on_hold_cleaned.columns:
+            if str(col).strip().upper() in ['COLOUR', 'COLOR']:
+                colour_col = col
+                break
+        if colour_col:
+            paintshop_on_hold_cleaned['Colour'] = paintshop_on_hold_cleaned[colour_col].fillna('—')
+        else:
+            paintshop_on_hold_cleaned['Colour'] = '—'
+    else:
+        paintshop_on_hold_cleaned = pd.DataFrame()
 
-        # Excel Download Buttons
-        dl1, dl2, dl3 = st.columns(3)
-        with dl1:
-            st.download_button(
-                label="⬇️ Download Excel (BIW & PT)",
-                data=ex_b_res,
-                file_name=f"Paint_WBS_Ageing_Analysis_{ad_res.strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_dl_biw_pt_aging"
-            )
-        with dl2:
-            st.download_button(
-                label="⬇️ Download PBS Aging Report",
-                data=pbs_ex_b_res,
-                file_name=f"PBS_Ageing_Report_{ad_res.strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_dl_pbs_aging"
-            )
-        with dl3:
-            st.download_button(
-                label="⬇️ Download Hold Cab Report",
-                data=hold_ex_b_res,
-                file_name=f"Hold_Cab_Report_{ad_res.strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_dl_hold_cabs_report"
-            )
+    tot_pbs_h = len(pbs_on_hold_cleaned)
+    tot_ps_h = len(paintshop_on_hold_cleaned)
 
-        st.markdown("---")
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("PBS Buffer Holds", f"{tot_pbs_h} cabs", help="Cabs in PBS Buffer on Quality hold")
+    metric_cols[1].metric("Paint Shop Holds", f"{tot_ps_h} cabs", help="Cabs in Paint Shop (PTCED to before PBS Lift) on Quality hold")
+    metric_cols[2].metric("Total Quality Holds", f"{tot_pbs_h + tot_ps_h} cabs")
+    
+    st.markdown("---")
+    
+    # --- SECTION 1: PBS QUALITY HOLDS ---
+    st.markdown("### 🛑 PBS Quality Holds Registry (PBS Buffer)")
+    if pbs_on_hold_cleaned.empty:
+        st.success("🎉 Excellent! No cabs currently on quality hold in the PBS buffer.")
+    else:
+        st.warning(f"⚠️ {tot_pbs_h} unique cabs are currently held in PBS and skipped from Clear-to-Build checks.")
+        
+        display_hold_cols = [col for col in ['BIW NUMBER', 'Model', 'Colour', 'VIN', 'VEHICLE CODE', 'SHOP', 'HOLD BY', 'REASONS S', 'PBS LIFT'] if col in pbs_on_hold_cleaned.columns]
+        st.dataframe(
+            pbs_on_hold_cleaned[display_hold_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        import io
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            pbs_on_hold_cleaned[display_hold_cols].to_excel(writer, index=False, sheet_name='PBS Quality Holds')
+        st.download_button(
+            label="📥 Export PBS Quality Holds to Excel",
+            data=excel_buffer.getvalue(),
+            file_name="pbs_quality_holds.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="export_pbs_quality_holds"
+        )
 
-        # Aging style helper
-        _BUCKET_HEX = {
-            "1 Day": "#E2EFDA",
-            "2 to 3 Days": "#FFF2CC",
-            "4 To 7 Days": "#FCE4D6",
-            "8 to 10 Days": "#F4CCCC",
-            "11 to 15 Days": "#EA9999",
-            "More than 15 days": "#C00000",
-        }
-        _BUCKET_WHITE_TXT = {"More than 15 days", "11 to 15 Days"}
+    st.markdown("---")
 
-        def _fmt_aging_cell(val):
-            bg = _BUCKET_HEX.get(str(val), "transparent")
-            fg = "#FFFFFF" if str(val) in _BUCKET_WHITE_TXT else "#1E293B"
-            return f"background-color: {bg}; color: {fg}; font-weight: 600; border-radius: 4px; padding: 2px 6px;"
-
-        is_dark_curr = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
-
-        def _render_summary_table_html(pivot_data, lift_label):
-            bucket_display = {
-                "More than 15 days": ">15d",
-                "11 to 15 Days": "11–15d",
-                "8 to 10 Days": "8–10d",
-                "4 To 7 Days": "4–7d",
-                "2 to 3 Days": "2–3d",
-                "1 Day": "1d",
-            }
-            hdr_bg = "#1E3A5F" if is_dark_curr else "#1E40AF"
-            bdr_col = "#334155" if is_dark_curr else "#CBD5E1"
-            cell_bdr = "#334155" if is_dark_curr else "#E2E8F0"
-            txt_col = "#E2E8F0" if is_dark_curr else "#1E293B"
-
-            header_cols = "".join(f'<th style="padding: 7px 10px; font-size: 12px; text-align: center; border: 1px solid {bdr_col}; background: {hdr_bg}; color: #FFFFFF;">{bucket_display.get(b, b)}</th>' for b in report_process.BUCKET_ORDER)
-
-            rows_html = ""
-            for i, model in enumerate(report_process.MODEL_ORDER):
-                row = pivot_data.get(model, {b: 0 for b in report_process.BUCKET_ORDER})
-                cells = ""
-                for b in report_process.BUCKET_ORDER:
-                    val = row.get(b, 0)
-                    cell_val = "–" if val == 0 else str(val)
-                    cells += f'<td style="padding: 6px 10px; font-size: 13px; text-align: center; border: 1px solid {cell_bdr}; color: {txt_col}; font-weight: {600 if val > 0 else 400};">{cell_val}</td>'
-                total = row.get("Total", 0)
-                tot_val = "–" if total == 0 else str(total)
-                bg = "#1E293B" if (is_dark_curr and i % 2 == 1) else ("#0F172A" if is_dark_curr else ("#F8FAFC" if i % 2 == 1 else "#FFFFFF"))
-                rows_html += f'<tr style="background: {bg};"><td style="padding: 6px 12px; font-size: 13px; font-weight: 600; text-align: left; border: 1px solid {cell_bdr}; color: {"#93C5FD" if is_dark_curr else "#1E40AF"};">{model}</td>{cells}<td style="padding: 6px 10px; font-size: 13px; font-weight: 700; text-align: center; border: 1px solid {cell_bdr}; color: {"#FFFFFF" if is_dark_curr else "#0F172A"};">{tot_val}</td></tr>'
-
-            # Total row
-            cells = ""
-            grand = 0
-            for b in report_process.BUCKET_ORDER:
-                val = sum(pivot_data.get(m, {}).get(b, 0) for m in report_process.MODEL_ORDER)
-                cells += f'<td style="padding: 6px 10px; font-size: 13px; font-weight: 700; text-align: center; border: 1px solid {bdr_col}; color: {"#38BDF8" if is_dark_curr else "#0369A1"};">{val}</td>'
-                grand += val
-            total_bg = "rgba(14, 165, 233, 0.18)" if is_dark_curr else "#E0F2FE"
-            rows_html += f'<tr style="background: {total_bg}; font-weight: 700;"><td style="padding: 7px 12px; font-size: 13px; text-align: left; border: 1px solid {bdr_col}; color: {"#38BDF8" if is_dark_curr else "#0369A1"};">{lift_label}</td>{cells}<td style="padding: 7px 10px; font-size: 14px; text-align: center; border: 1px solid {bdr_col}; color: {"#38BDF8" if is_dark_curr else "#0369A1"};">{grand}</td></tr>'
-
-            # J Block row
-            empty_cells = "".join(f'<td style="padding: 5px 10px; text-align: center; border: 1px solid {cell_bdr}; color: #94A3B8;">–</td>' for _ in report_process.BUCKET_ORDER)
-            jblock_bg = "#111827" if is_dark_curr else "#F1F5F9"
-            rows_html += f'<tr style="background: {jblock_bg}; font-style: italic;"><td style="padding: 5px 12px; font-size: 12px; text-align: left; border: 1px solid {cell_bdr}; color: #94A3B8;">J Block</td>{empty_cells}<td style="padding: 5px 10px; font-size: 12px; text-align: center; border: 1px solid {cell_bdr}; color: #94A3B8;">0</td></tr>'
-
-            return f'''
-            <div style="overflow-x: auto; margin-bottom: 1.2rem; border-radius: 8px; border: 1px solid {cell_bdr};">
-                <table style="width: 100%; border-collapse: collapse; font-family: Inter, sans-serif;">
-                    <thead>
-                        <tr>
-                            <th style="padding: 7px 12px; font-size: 12px; text-align: left; border: 1px solid {bdr_col}; background: {hdr_bg}; color: #FFFFFF;">Model</th>
-                            {header_cols}
-                            <th style="padding: 7px 10px; font-size: 12px; text-align: center; border: 1px solid {bdr_col}; background: {hdr_bg}; color: #FFFFFF;">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                    </tbody>
-                </table>
-            </div>
-            '''
-
-        # 5 Sub-Tabs
-        sub_tab_sum, sub_tab_biw, sub_tab_pt, sub_tab_pbs, sub_tab_hold = st.tabs([
-            "📊 Summary",
-            "🔵 BIW to PT Detail",
-            "🟡 PT to PBS Detail",
-            "🟢 PBS Detail",
-            "🔴 Hold Cab Report"
-        ])
-
-        # Sub-Tab 1: Summary
-        with sub_tab_sum:
-            st.markdown("<h4 style='margin-bottom: 6px; color: #0284C7;'>BIW to PT – Age Analysis</h4>", unsafe_allow_html=True)
-            st.markdown(_render_summary_table_html(sum_biw_res, "BIW to PT Lift"), unsafe_allow_html=True)
-
-            st.markdown("<h4 style='margin-bottom: 6px; color: #0284C7;'>PT to PBS – Age Analysis</h4>", unsafe_allow_html=True)
-            st.markdown(_render_summary_table_html(sum_pt_res, "PT to PBS Lift"), unsafe_allow_html=True)
-
-            st.markdown("<h4 style='margin-bottom: 6px; color: #0284C7;'>PBS – Age Analysis</h4>", unsafe_allow_html=True)
-            st.markdown(_render_summary_table_html(sum_pbs_res, "PBS Lift"), unsafe_allow_html=True)
-
-        # Sub-Tab 2: BIW to PT Detail
-        with sub_tab_biw:
-            if df_biw_res.empty:
-                st.info("🎉 No vehicles currently in BIW to PT stage.")
-            else:
-                f1_b, f2_b, f3_b = st.columns(3)
-                models_b = ["All"] + sorted([m for m in df_biw_res["MODEL_NAME"].dropna().unique().tolist() if m])
-                buckets_b = ["All"] + [b for b in report_process.BUCKET_ORDER if b in df_biw_res["Ageing"].values]
-                shops_b = ["All"] + sorted([s for s in df_biw_res["SHOP"].dropna().unique().tolist() if s])
-
-                sel_m_b = f1_b.selectbox("Model Filter:", models_b, key="sel_aging_biw_model")
-                sel_b_b = f2_b.selectbox("Ageing Bucket Filter:", buckets_b, key="sel_aging_biw_bucket")
-                sel_s_b = f3_b.selectbox("Shop Filter:", shops_b, key="sel_aging_biw_shop")
-
-                view_biw = df_biw_res.copy()
-                if sel_m_b != "All": view_biw = view_biw[view_biw["MODEL_NAME"] == sel_m_b]
-                if sel_b_b != "All": view_biw = view_biw[view_biw["Ageing"] == sel_b_b]
-                if sel_s_b != "All": view_biw = view_biw[view_biw["SHOP"] == sel_s_b]
-
-                cols_map_biw = {
-                    "SR NO": "Sr No",
-                    "BIW NUMBER": "BIW Number",
-                    "MODEL_NAME": "Product",
-                    "COLOUR": "Colour",
-                    "SHOP": "Shop",
-                    "BIW LIFTING": "BIW Lifting",
-                    "aging_days": "Days",
-                    "Ageing": "Ageing",
-                }
-                avail_b = [c for c in cols_map_biw if c in view_biw.columns]
-                view_disp_b = view_biw[avail_b].rename(columns=cols_map_biw)
-                st.caption(f"Showing **{len(view_disp_b)}** of **{len(df_biw_res)}** records")
-
-                try:
-                    styled_b = view_disp_b.style.map(_fmt_aging_cell, subset=["Ageing"])
-                    st.dataframe(styled_b, use_container_width=True, hide_index=True, height=500)
-                except Exception:
-                    st.dataframe(view_disp_b, use_container_width=True, hide_index=True, height=500)
-
-        # Sub-Tab 3: PT to PBS Detail
-        with sub_tab_pt:
-            if df_pt_res.empty:
-                st.info("🎉 No vehicles currently in PT to PBS stage.")
-            else:
-                f1_p, f2_p, f3_p = st.columns(3)
-                models_p = ["All"] + sorted([m for m in df_pt_res["MODEL_NAME"].dropna().unique().tolist() if m])
-                buckets_p = ["All"] + [b for b in report_process.BUCKET_ORDER if b in df_pt_res["Ageing"].values]
-                shops_p = ["All"] + sorted([s for s in df_pt_res["SHOP"].dropna().unique().tolist() if s])
-
-                sel_m_p = f1_p.selectbox("Model Filter:", models_p, key="sel_aging_pt_model")
-                sel_b_p = f2_p.selectbox("Ageing Bucket Filter:", buckets_p, key="sel_aging_pt_bucket")
-                sel_s_p = f3_p.selectbox("Shop Filter:", shops_p, key="sel_aging_pt_shop")
-
-                view_pt = df_pt_res.copy()
-                if sel_m_p != "All": view_pt = view_pt[view_pt["MODEL_NAME"] == sel_m_p]
-                if sel_b_p != "All": view_pt = view_pt[view_pt["Ageing"] == sel_b_p]
-                if sel_s_p != "All": view_pt = view_pt[view_pt["SHOP"] == sel_s_p]
-
-                cols_map_pt = {
-                    "SR NO": "Sr No",
-                    "BIW NUMBER": "BIW Number",
-                    "MODEL_NAME": "Product",
-                    "COLOUR": "Colour",
-                    "SHOP": "Shop",
-                    "PTCED": "PT Ced",
-                    "aging_days": "Days",
-                    "Ageing": "Ageing",
-                }
-                avail_p = [c for c in cols_map_pt if c in view_pt.columns]
-                view_disp_p = view_pt[avail_p].rename(columns=cols_map_pt)
-                st.caption(f"Showing **{len(view_disp_p)}** of **{len(df_pt_res)}** records")
-
-                try:
-                    styled_p = view_disp_p.style.map(_fmt_aging_cell, subset=["Ageing"])
-                    st.dataframe(styled_p, use_container_width=True, hide_index=True, height=500)
-                except Exception:
-                    st.dataframe(view_disp_p, use_container_width=True, hide_index=True, height=500)
-
-        # Sub-Tab 4: PBS Detail
-        with sub_tab_pbs:
-            if df_pbs_res.empty:
-                st.info("🎉 No vehicles currently in PBS stage.")
-            else:
-                f1_pbs, f2_pbs, f3_pbs = st.columns(3)
-                models_pbs = ["All"] + sorted([m for m in df_pbs_res["MODEL_NAME"].dropna().unique().tolist() if m])
-                buckets_pbs = ["All"] + [b for b in report_process.BUCKET_ORDER if b in df_pbs_res["Ageing"].values]
-                shops_pbs = ["All"] + sorted([s for s in df_pbs_res["SHOP"].dropna().unique().tolist() if s])
-
-                sel_m_pbs = f1_pbs.selectbox("Model Filter:", models_pbs, key="sel_aging_pbs_model")
-                sel_b_pbs = f2_pbs.selectbox("Ageing Bucket Filter:", buckets_pbs, key="sel_aging_pbs_bucket")
-                sel_s_pbs = f3_pbs.selectbox("Shop Filter:", shops_pbs, key="sel_aging_pbs_shop")
-
-                view_pbs = df_pbs_res.copy()
-                if sel_m_pbs != "All": view_pbs = view_pbs[view_pbs["MODEL_NAME"] == sel_m_pbs]
-                if sel_b_pbs != "All": view_pbs = view_pbs[view_pbs["Ageing"] == sel_b_pbs]
-                if sel_s_pbs != "All": view_pbs = view_pbs[view_pbs["SHOP"] == sel_s_pbs]
-
-                cols_map_pbs = {
-                    "SR NO": "Sr No",
-                    "VIN": "VIN",
-                    "BIW NUMBER": "BIW Number",
-                    "VEHICLE CODE": "Vehicle Code",
-                    "MODEL_NAME": "Product",
-                    "SALES DESCRIPTION": "Sales Description",
-                    "COLOUR": "Colour",
-                    "SHOP": "Shop",
-                    "PBS LIFT": "PBS Lift",
-                    "HOLD BY": "Hold By",
-                    "aging_days": "Days",
-                    "Ageing": "Ageing",
-                    "Reason_for_aging": "Reason for aging"
-                }
-                avail_pbs = [c for c in cols_map_pbs if c in view_pbs.columns]
-                view_disp_pbs = view_pbs[avail_pbs].rename(columns=cols_map_pbs)
-                st.caption(f"Showing **{len(view_disp_pbs)}** of **{len(df_pbs_res)}** records")
-
-                try:
-                    styled_pbs = view_disp_pbs.style.map(_fmt_aging_cell, subset=["Ageing"])
-                    st.dataframe(styled_pbs, use_container_width=True, hide_index=True, height=500)
-                except Exception:
-                    st.dataframe(view_disp_pbs, use_container_width=True, hide_index=True, height=500)
-
-        # Sub-Tab 5: Hold Cab Report
-        with sub_tab_hold:
-            if df_hold_res.empty:
-                st.info("🎉 Excellent! No cabs currently on hold between PTCED and PBS stages.")
-            else:
-                f1_h, f2_h, f3_h = st.columns(3)
-                agencies_h = ["All"] + sorted([a for a in df_hold_res["Agency"].dropna().unique().tolist() if a])
-                locations_h = ["All"] + sorted([l for l in df_hold_res["Location"].dropna().unique().tolist() if l])
-                models_h = ["All"] + sorted([p for p in df_hold_res["PRODUCT"].dropna().unique().tolist() if p])
-
-                sel_a_h = f1_h.selectbox("Agency Filter:", agencies_h, key="sel_aging_hold_agency")
-                sel_l_h = f2_h.selectbox("Location Filter:", locations_h, key="sel_aging_hold_location")
-                sel_p_h = f3_h.selectbox("Product Filter:", models_h, key="sel_aging_hold_product")
-
-                view_hold = df_hold_res.copy()
-                if sel_a_h != "All": view_hold = view_hold[view_hold["Agency"] == sel_a_h]
-                if sel_l_h != "All": view_hold = view_hold[view_hold["Location"] == sel_l_h]
-                if sel_p_h != "All": view_hold = view_hold[view_hold["PRODUCT"] == sel_p_h]
-
-                cols_map_hold = {
-                    "SR NO": "Sr No",
-                    "VIN": "VIN",
-                    "BIW NUMBER": "BIW No",
-                    "VEHICLE CODE": "Vehicle Code",
-                    "PRODUCT": "Product",
-                    "COLOUR": "Colour",
-                    "PTCED": "PTCED",
-                    "PBS LIFT": "PBS Lift",
-                    "Days": "Days",
-                    "HOLD BY": "Hold By",
-                    "Reason": "Reason",
-                    "Location": "Location",
-                    "Agency": "Agency",
-                }
-                avail_h = [c for c in cols_map_hold if c in view_hold.columns]
-                view_disp_hold = view_hold[avail_h].rename(columns=cols_map_hold)
-                st.caption(f"Showing **{len(view_disp_hold)}** of **{len(df_hold_res)}** hold cabs")
-                st.dataframe(view_disp_hold, use_container_width=True, hide_index=True, height=500)
+    # --- SECTION 2: PAINT SHOP QUALITY HOLDS ---
+    st.markdown("### 🎨 Paint Shop Quality Holds Registry (PTCED to Before PBS Lift)")
+    if paintshop_on_hold_cleaned.empty:
+        st.success("🎉 Excellent! No cabs currently on quality hold in the Paint Shop stage.")
+    else:
+        st.warning(f"⚠️ {tot_ps_h} unique cabs are currently held in Paint Shop (between PTCED and before PBS Lift).")
+        
+        display_ps_cols = [col for col in ['BIW NUMBER', 'Model', 'Colour', 'VIN', 'VEHICLE CODE', 'SHOP', 'HOLD BY', 'REASONS S', 'PTCED', 'SEALANT', 'TOPCOAT'] if col in paintshop_on_hold_cleaned.columns]
+        st.dataframe(
+            paintshop_on_hold_cleaned[display_ps_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        import io
+        excel_buffer_ps = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer_ps, engine='openpyxl') as writer:
+            paintshop_on_hold_cleaned[display_ps_cols].to_excel(writer, index=False, sheet_name='Paint Shop Quality Holds')
+        st.download_button(
+            label="📥 Export Paint Shop Quality Holds to Excel",
+            data=excel_buffer_ps.getvalue(),
+            file_name="paintshop_quality_holds.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="export_paintshop_quality_holds"
+        )
         
 
 
@@ -5326,7 +4995,7 @@ with tcf_tabs[0]:
                                 today_vin_dict[p_str] = today_vin_dict.get(p_str, 0) + cnt
 
             table_rows = []
-            header_part_name = 'Cockpit WH Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
+            header_part_name = 'Cockpit Part Number' if 'Cockpit' in part_col_name else 'Wiring Part Number'
             
             stk_1 = stock_tcf1 if stock_tcf1 is not None else {}
             stk_2 = stock_tcf2 if stock_tcf2 is not None else {}
@@ -5406,17 +5075,17 @@ with tcf_tabs[0]:
                         'Excess Qty': vin_nova - c_q
                     })
                     
-        # 3. Cockpit WH
+        # 3. Cockpit
         if df_cpt_all is not None and not df_cpt_all.empty:
             for idx, r_c in df_cpt_all.iterrows():
-                p_hdr = 'Cockpit WH Part Number'
+                p_hdr = 'Cockpit Part Number'
                 c_no = r_c.get(p_hdr, '')
                 m_descr = r_c.get('Model', '')
                 cl_c = r_c.get('Clearance After 6:30AM', 0)
                 vin_c = r_c.get('Today VIN', 0)
                 if isinstance(cl_c, (int, float)) and vin_c > cl_c:
                     excess_alerts.append({
-                        'Category': 'Cockpit WH',
+                        'Category': 'Cockpit',
                         'Model / Part': f"{c_no} ({m_descr})",
                         'Clearance 6:30 AM': cl_c,
                         'Today VIN': vin_c,
@@ -5703,7 +5372,7 @@ with tcf_tabs[0]:
                     col_letter = openpyxl.utils.get_column_letter(col[0].column)
                     ws.column_dimensions[col_letter].width = max(max_len + 3, 14)
 
-            format_openpyxl_shortage_sheet('Cockpit WH Shortage', df_cpt_shortage, 'Cockpit WH Part Number')
+            format_openpyxl_shortage_sheet('Cockpit Shortage', df_cpt_shortage, 'Cockpit Part Number')
             format_openpyxl_shortage_sheet('Wiring Shortage', df_wir_shortage, 'Wiring Part Number')
             
             # Sheet: Hourly Production (if available)
@@ -5756,10 +5425,10 @@ with tcf_tabs[0]:
                 
         excel_data = excel_buffer.getvalue()
 
-        # Build 2-Sheet Excel workbook for Cockpit WH & Wiring Report (All Parts: Cockpit WH, Wiring)
+        # Build 2-Sheet Excel workbook for Cockpit & Wiring Report (All Parts: Cockpit, Wiring)
         all_parts_excel_buffer = io.BytesIO()
         with pd.ExcelWriter(all_parts_excel_buffer, engine='openpyxl') as writer_all:
-            format_openpyxl_shortage_sheet('Cockpit WH', df_cpt_all, 'Cockpit WH Part Number', target_writer=writer_all)
+            format_openpyxl_shortage_sheet('Cockpit', df_cpt_all, 'Cockpit Part Number', target_writer=writer_all)
             format_openpyxl_shortage_sheet('Wiring', df_wir_all, 'Wiring Part Number', target_writer=writer_all)
         all_parts_excel_data = all_parts_excel_buffer.getvalue()
         
@@ -5790,7 +5459,7 @@ with tcf_tabs[0]:
                     with fb1:
                         in_engine = st.text_input("Engine / Battery Part No.")
                     with fb2:
-                        in_cockpit = st.text_input("Cockpit WH Part No.")
+                        in_cockpit = st.text_input("Cockpit Part No.")
                     with fb3:
                         in_wiring = st.text_input("Front Wiring Part No.")
                     submitted = st.form_submit_button("💾 Save BOM Entry")
@@ -5813,9 +5482,9 @@ with tcf_tabs[0]:
 
 # ----------------- TAB 2: COCKPIT & WIRING SHORTAGE REPORTS -----------------
 with tcf_tabs[1]:
-    st.markdown("### 🧩 Cockpit WH & Wiring Shortage Reports")
+    st.markdown("### 🧩 Cockpit & Wiring Shortage Reports")
     st.markdown("""
-        Real-time shortage monitoring for **Cockpit WH Assemblies** and **Front Wiring Harnesses** matching engine summary models across TCF1 and TCF2 lines.
+        Real-time shortage monitoring for **Cockpit Assemblies** and **Front Wiring Harnesses** matching engine summary models across TCF1 and TCF2 lines.
     """)
 
     cpt_sh_df = df_cpt_shortage if 'df_cpt_shortage' in locals() and df_cpt_shortage is not None else pd.DataFrame()
@@ -5824,7 +5493,7 @@ with tcf_tabs[1]:
     wir_all_df = df_wir_all if 'df_wir_all' in locals() and df_wir_all is not None else pd.DataFrame()
 
     if (cpt_all_df is None or cpt_all_df.empty) and (wir_all_df is None or wir_all_df.empty):
-        st.info("ℹ️ Please load Paint Float and BOM data in the Control Panel to view Cockpit WH & Wiring Shortage Reports.")
+        st.info("ℹ️ Please load Paint Float and BOM data in the Control Panel to view Cockpit & Wiring Shortage Reports.")
     else:
         # Top KPI Summary Cards
         cpt_sh_count = len(cpt_sh_df) if cpt_sh_df is not None else 0
@@ -5835,7 +5504,7 @@ with tcf_tabs[1]:
         kpi_sh1, kpi_sh2, kpi_sh3, kpi_sh4 = st.columns(4)
         with kpi_sh1:
             st.metric(
-                label="🚗 Cockpit WH Shortages",
+                label="🚗 Cockpit Shortages",
                 value=f"{cpt_sh_count} Part{'s' if cpt_sh_count != 1 else ''}",
                 delta="Critical Shortage" if cpt_sh_count > 0 else "All Covered",
                 delta_color="inverse" if cpt_sh_count > 0 else "normal"
@@ -5849,7 +5518,7 @@ with tcf_tabs[1]:
             )
         with kpi_sh3:
             st.metric(
-                label="📦 Monitored Cockpit WH",
+                label="📦 Monitored Cockpits",
                 value=f"{tot_cpt_count} Part Numbers"
             )
         with kpi_sh4:
@@ -5949,18 +5618,18 @@ with tcf_tabs[1]:
                 ]
             return df_out
 
-        filtered_cpt = _apply_sh_filters(target_cpt, "Cockpit WH Part Number")
+        filtered_cpt = _apply_sh_filters(target_cpt, "Cockpit Part Number")
         filtered_wir = _apply_sh_filters(target_wir, "Wiring Part Number")
 
         st.markdown("---")
-        st.markdown("#### 🚗 Cockpit WH Shortage Report")
+        st.markdown("#### 🚗 Cockpit Shortage Report")
         if filtered_cpt is not None and not filtered_cpt.empty:
-            st.markdown(render_html_formatted_shortage(filtered_cpt, "Cockpit WH Part Number", is_dark_theme), unsafe_allow_html=True)
+            st.markdown(render_html_formatted_shortage(filtered_cpt, "Cockpit Part Number", is_dark_theme), unsafe_allow_html=True)
         else:
             if show_shortages_only:
-                st.success("✅ No Cockpit WH Shortages detected for selected filters! All required cockpit WH assemblies are covered by clearance stock.")
+                st.success("✅ No Cockpit Shortages detected for selected filters! All required cockpit assemblies are covered by clearance stock.")
             else:
-                st.info("No cockpit WH records match your filters.")
+                st.info("No cockpit records match your filters.")
 
         st.markdown("#### ⚡ Wiring Harness Shortage Report")
         if filtered_wir is not None and not filtered_wir.empty:
@@ -5976,21 +5645,21 @@ with tcf_tabs[1]:
         exp_sh1, exp_sh2 = st.columns(2)
         with exp_sh1:
             st.download_button(
-                label="📥 Download Cockpit WH & Wiring Report (All Parts - 2 Sheets)",
+                label="📥 Download Cockpit & Wiring Report (All Parts - 2 Sheets)",
                 data=all_parts_excel_data,
-                file_name="Cockpit_WH_and_Wiring_Report_All_Parts.xlsx",
+                file_name="Cockpit_and_Wiring_Report_All_Parts.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_cockpit_wiring_tab_all_parts"
             )
         with exp_sh2:
             sh_excel_buf = io.BytesIO()
             with pd.ExcelWriter(sh_excel_buf, engine='openpyxl') as writer_sh_only:
-                format_openpyxl_shortage_sheet('Cockpit WH Shortage', cpt_sh_df, 'Cockpit WH Part Number', target_writer=writer_sh_only)
+                format_openpyxl_shortage_sheet('Cockpit Shortage', cpt_sh_df, 'Cockpit Part Number', target_writer=writer_sh_only)
                 format_openpyxl_shortage_sheet('Wiring Shortage', wir_sh_df, 'Wiring Part Number', target_writer=writer_sh_only)
             st.download_button(
                 label="📥 Download Critical Shortages Only (Excel)",
                 data=sh_excel_buf.getvalue(),
-                file_name="Cockpit_WH_and_Wiring_Critical_Shortages.xlsx",
+                file_name="Cockpit_and_Wiring_Critical_Shortages.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="export_cockpit_wiring_tab_critical_only"
             )
