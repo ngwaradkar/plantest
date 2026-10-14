@@ -18,7 +18,13 @@ def render():
     float_df = db_data.float_df if db_data else None
 
     # Control Panel
-    default_aging_date = st.session_state.get("aging_analysis_date", datetime.date.today())
+    detected_aging_date = report_process.get_default_analysis_date(float_df, None)
+    if "aging_detected_date" not in st.session_state or st.session_state.aging_detected_date != detected_aging_date:
+        st.session_state.aging_detected_date = detected_aging_date
+        st.session_state.aging_analysis_date = detected_aging_date
+        st.session_state.pop("aging_results", None)
+
+    default_aging_date = st.session_state.get("aging_analysis_date", detected_aging_date)
 
     with st.container(border=True):
         col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1.6, 2.6, 1.8])
@@ -30,6 +36,13 @@ def render():
                 help="Aging is calculated from stage entry timestamp up to this date."
             )
             st.session_state.aging_analysis_date = sel_analysis_date
+            if detected_aging_date:
+                st.caption(f"📌 Auto-detected Snapshot: **{detected_aging_date.strftime('%d %b %Y')}**")
+                if sel_analysis_date != detected_aging_date:
+                    if st.button(f"🔄 Reset to Report Date ({detected_aging_date.strftime('%d %b')})", key="pages_btn_reset_aging_date"):
+                        st.session_state.aging_analysis_date = detected_aging_date
+                        st.session_state.pop("aging_results", None)
+                        st.rerun()
 
         with col_ctrl2:
             st.markdown("<div style='font-size: 13px; font-weight: 600; margin-bottom: 4px;'>🏖️ Holiday Manager (Excluded Days)</div>", unsafe_allow_html=True)

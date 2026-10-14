@@ -74,32 +74,148 @@ BUCKET_FONT_WHITE = {"More than 15 days", "11 to 15 Days"}
 
 
 # ─────────────────────────────────────────────
-#  Helpers
+#  Helpers & Date Healing
 # ─────────────────────────────────────────────
 
-def _parse_dt(val) -> datetime.datetime | None:
-    """Parse a datetime from string or existing datetime object."""
-    if val is None:
+def _detect_dominant_months(df: pd.DataFrame, date_cols: list) -> Set[int]:
+    """
+    Detect the operational months for the dataset to heal Excel day/month inversion bugs.
+    In Indian plant exports (DD/MM/YYYY), US-locale Excel swaps day/month when day <= 12.
+    """
+    from collections import Counter
+    unambiguous_months = []
+    for c in date_cols:
+        if c not in df.columns:
+            continue
+        for v in df[c].dropna():
+            if isinstance(v, str):
+                m = re.search(r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', v)
+                if m:
+                    d, mo, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    if 1 <= mo <= 12:
+                        unambiguous_months.append(mo)
+            elif isinstance(v, (datetime.datetime, pd.Timestamp)):
+                if v.day > 12 and 1 <= v.month <= 12:
+                    unambiguous_months.append(v.month)
+    
+    if unambiguous_months:
+        return {m for m, _ in Counter(unambiguous_months).most_common(2)}
+    
+    dt_objs = [v for c in date_cols if c in df.columns for v in df[c].dropna() if isinstance(v, (datetime.datetime, pd.Timestamp))]
+    if dt_objs:
+        from collections import Counter
+        days = [v.day for v in dt_objs]
+        months = [v.month for v in dt_objs]
+        day_cnt = Counter(days)
+        top_day, top_day_freq = day_cnt.most_common(1)[0]
+        if top_day_freq / len(dt_objs) > 0.3 and len(set(months)) >= 3:
+            return {top_day}
+
+    return {datetime.date.today().month}
+
+
+def _parse_and_heal_dt(val, dominant_months: Set[int]) -> datetime.datetime | None:
+    """Parse a datetime from string, number, or datetime object, correcting US-locale day/month flips."""
+    if val is None or pd.isna(val):
         return None
+    p = None
     if isinstance(val, (datetime.datetime, pd.Timestamp)):
-        if pd.isna(val):
+        p = val.to_pydatetime() if hasattr(val, 'to_pydatetime') else val
+    elif isinstance(val, (int, float)):
+        if 35000 <= val <= 60000:
+            try:
+                base = datetime.datetime(1899, 12, 30)
+                p = base + datetime.timedelta(days=val)
+            except Exception:
+                pass
+    if p is None:
+        s = str(val).strip()
+        if s in ("None", "", "nan", "NaN", "NaT"):
             return None
-        return val.to_pydatetime() if hasattr(val, 'to_pydatetime') else val
-    s = str(val).strip()
-    if s in ("None", "", "nan", "NaN", "NaT"):
-        return None
-    for fmt in ("%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
-        try:
-            return datetime.datetime.strptime(s, fmt)
-        except ValueError:
-            pass
-    try:
-        ts = pd.to_datetime(s, format="mixed", dayfirst=True)
-        if pd.notna(ts):
-            return ts.to_pydatetime()
-    except Exception:
-        pass
+        for fmt in (
+            "%d/%m/%Y %I:%M:%S %p",
+            "%d/%m/%Y %H:%M:%S",
+            "%d-%m-%Y %I:%M:%S %p",
+            "%d-%m-%Y %H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M:%S.%f",
+            "%d/%m/%Y",
+            "%d-%m-%Y",
+            "%Y-%m-%d",
+        ):
+            try:
+                p = datetime.datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                pass
+        if p is None:
+            try:
+                ts = pd.to_datetime(s, format="mixed", dayfirst=True)
+                if pd.notna(ts):
+                    p = ts.to_pydatetime()
+            except Exception:
+                pass
+
+    if p is not None and pd.notna(p):
+        # Self-heal inverted day and month if day matches operational month and month does not
+        if p.month not in dominant_months and p.day in dominant_months and p.month <= 12:
+            try:
+                p = datetime.datetime(p.year, p.day, p.month, p.hour, p.minute, p.second, p.microsecond)
+            except Exception:
+                pass
+        return p
     return None
+
+
+def _parse_dt(val) -> datetime.datetime | None:
+    """Fallback simple parser using current month as dominant month."""
+    return _parse_and_heal_dt(val, {datetime.date.today().month})
+
+
+def get_default_analysis_date(file_input=None, filename: str | None = None) -> datetime.date:
+    """
+    Auto-detect the true analysis date for aging calculations:
+    1. If filename contains an explicit date (e.g. 'PPC_Float_14.08.2026.xlsb'), extract and use it.
+    2. Otherwise, read/heal the float data and return the maximum activity timestamp date (snapshot date).
+    3. Fallback to datetime.date.today() only if no dates could be parsed.
+    """
+    if filename:
+        dt = extract_date_from_filename(filename)
+        if dt:
+            return dt
+
+    if file_input is not None:
+        try:
+            df = None
+            if isinstance(file_input, pd.DataFrame):
+                df = file_input
+            elif isinstance(file_input, (bytes, bytearray)):
+                df = read_float_report(file_input, filename or "float.xlsb")
+            
+            if df is not None and not df.empty:
+                date_cols = [
+                    c for c in df.columns 
+                    if any(k in str(c).upper().replace(" ", "").replace("_", "") for k in ["BIWLIFT", "PTCED", "PBSLIFT"])
+                ]
+                if not date_cols:
+                    date_cols = [c for c in df.columns if any(k in str(c).upper() for k in ["DATE", "TIME"])]
+                
+                if date_cols:
+                    dom_months = _detect_dominant_months(df, date_cols)
+                    latest_d = None
+                    for c in date_cols:
+                        for v in df[c].dropna():
+                            p = _parse_and_heal_dt(v, dom_months)
+                            if p is not None and pd.notna(p):
+                                d = p.date() if hasattr(p, "date") else p
+                                if latest_d is None or d > latest_d:
+                                    latest_d = d
+                    if latest_d:
+                        return latest_d
+        except Exception:
+            pass
+
+    return datetime.date.today()
 
 
 def _aging_days(
@@ -226,7 +342,7 @@ def read_float_report(file_bytes: bytes, filename: str) -> pd.DataFrame:
 # ─────────────────────────────────────────────
 
 def process_aging(
-    file_bytes: bytes,
+    file_input: bytes | pd.DataFrame,
     filename: str,
     analysis_date: datetime.date,
     holidays: List[datetime.date],
@@ -254,7 +370,10 @@ def process_aging(
         elif isinstance(h, datetime.date):
             holiday_dates.add(h)
 
-    df = read_float_report(file_bytes, filename)
+    if isinstance(file_input, pd.DataFrame):
+        df = file_input.copy()
+    else:
+        df = read_float_report(file_input, filename)
 
     # ── Normalise column names: strip all whitespace ──
     df.columns = [str(c).strip() for c in df.columns]
@@ -333,10 +452,19 @@ def process_aging(
         df["SHOP"] = ""
         shop_col = "SHOP"
 
-    # Parse timestamp columns
-    df["BIW_DT"]  = df[biw_col].apply(_parse_dt)
-    df["PTCED_DT"] = df[ptced_col].apply(_parse_dt)
-    df["PBS_DT"]   = df[pbs_col].apply(_parse_dt)
+    # Detect dominant months for timestamp healing
+    date_cols = [c for c in [biw_col, ptced_col, pbs_col] if c and c in df.columns]
+    dom_months = _detect_dominant_months(df, date_cols)
+
+    # Parse and heal timestamp columns (reverses US-locale day/month flips)
+    df["BIW_DT"]  = df[biw_col].apply(lambda x: _parse_and_heal_dt(x, dom_months))
+    df["PTCED_DT"] = df[ptced_col].apply(lambda x: _parse_and_heal_dt(x, dom_months))
+    df["PBS_DT"]   = df[pbs_col].apply(lambda x: _parse_and_heal_dt(x, dom_months))
+
+    # Format timestamp display columns cleanly for reports and UI
+    df[biw_col] = df["BIW_DT"].apply(lambda x: x.strftime("%d/%m/%Y %I:%M:%S %p") if x and pd.notna(x) else "")
+    df[ptced_col] = df["PTCED_DT"].apply(lambda x: x.strftime("%d/%m/%Y %I:%M:%S %p") if x and pd.notna(x) else "")
+    df[pbs_col] = df["PBS_DT"].apply(lambda x: x.strftime("%d/%m/%Y %I:%M:%S %p") if x and pd.notna(x) else "")
 
     # Apply product mapping; TAYRONA rows drop out (map returns NaN)
     df["MODEL_NAME"] = df[prod_col].map(PRODUCT_MAP)
@@ -453,15 +581,12 @@ def process_aging_from_df(
     holidays: List[datetime.date],
 ) -> tuple:
     """
-    Generate aging report from an already-loaded DataFrame.
-    Serializes the DataFrame to CSV internally and delegates to process_aging().
-    Used by the Planner Dashboard integration to avoid separate file upload.
+    Generate aging report directly from an already-loaded DataFrame.
+    Avoids CSV serialization data loss and preserves native objects.
 
     Parameters & Returns: same as process_aging().
     """
-    buf = BytesIO()
-    df_input.to_csv(buf, index=False)
-    return process_aging(buf.getvalue(), "dashboard_float.csv", analysis_date, holidays)
+    return process_aging(df_input, "dashboard_float.xlsx", analysis_date, holidays)
 
 
 # ─────────────────────────────────────────────

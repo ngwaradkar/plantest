@@ -2871,8 +2871,7 @@ with tcf_tabs[5]:
     if "aging_holidays" not in st.session_state:
         st.session_state.aging_holidays = []
 
-    # Detect default analysis date from float report source name
-    default_aging_date = datetime.date.today()
+    # Detect default analysis date from float report source name or float data
     float_report_source_name = None
     float_raw_bytes = None
 
@@ -2902,13 +2901,17 @@ with tcf_tabs[5]:
             except Exception:
                 pass
 
-    if float_report_source_name:
-        parsed_aging_dt = report_process.extract_date_from_filename(float_report_source_name)
-        if parsed_aging_dt:
-            default_aging_date = parsed_aging_dt
+    # Detect true snapshot date from float report data or filename
+    detected_aging_date = report_process.get_default_analysis_date(
+        float_df if (float_df is not None and not float_df.empty) else float_raw_bytes,
+        float_report_source_name
+    )
 
-    if "aging_analysis_date" not in st.session_state:
-        st.session_state.aging_analysis_date = default_aging_date
+    # Initialize or update session state if a new file/date is detected
+    if "aging_detected_date" not in st.session_state or st.session_state.aging_detected_date != detected_aging_date:
+        st.session_state.aging_detected_date = detected_aging_date
+        st.session_state.aging_analysis_date = detected_aging_date
+        st.session_state.pop("aging_results", None)
 
     # Control Panel
     with st.container(border=True):
@@ -2921,6 +2924,13 @@ with tcf_tabs[5]:
                 help="Aging is calculated from stage entry timestamp up to this date."
             )
             st.session_state.aging_analysis_date = sel_analysis_date
+            if detected_aging_date:
+                st.caption(f"📌 Auto-detected Snapshot: **{detected_aging_date.strftime('%d %b %Y')}**")
+                if sel_analysis_date != detected_aging_date:
+                    if st.button(f"🔄 Reset to Report Date ({detected_aging_date.strftime('%d %b')})", key="btn_reset_aging_date"):
+                        st.session_state.aging_analysis_date = detected_aging_date
+                        st.session_state.pop("aging_results", None)
+                        st.rerun()
 
         with col_ctrl2:
             st.markdown("<div style='font-size: 13px; font-weight: 600; margin-bottom: 4px;'>🏖️ Holiday Manager (Excluded Days)</div>", unsafe_allow_html=True)
@@ -2964,26 +2974,35 @@ with tcf_tabs[5]:
             key="aging_custom_file_uploader",
             label_visibility="visible"
         )
+        custom_override_bytes = None
+        custom_override_name = None
         if tab_custom_file is not None:
-            float_raw_bytes = tab_custom_file.getvalue()
-            float_report_source_name = tab_custom_file.name
-            st.info(f"Using uploaded override file: **{float_report_source_name}**")
+            custom_override_bytes = tab_custom_file.getvalue()
+            custom_override_name = tab_custom_file.name
+            st.info(f"Using uploaded override file: **{custom_override_name}**")
 
     # Calculation logic triggered by button or automatic if not yet calculated
     needs_calc = btn_calc_aging
     if needs_calc:
         with st.spinner("⏳ Calculating stage-wise aging and hold cab breakdowns..."):
             try:
-                if float_raw_bytes:
+                if custom_override_bytes:
                     res_tuple = report_process.process_aging(
-                        float_raw_bytes,
-                        float_report_source_name or "float_report.xlsb",
+                        custom_override_bytes,
+                        custom_override_name or "float_report.xlsb",
                         sel_analysis_date,
                         st.session_state.aging_holidays
                     )
                 elif float_df is not None and not float_df.empty:
                     res_tuple = report_process.process_aging_from_df(
                         float_df,
+                        sel_analysis_date,
+                        st.session_state.aging_holidays
+                    )
+                elif float_raw_bytes:
+                    res_tuple = report_process.process_aging(
+                        float_raw_bytes,
+                        float_report_source_name or "float_report.xlsb",
                         sel_analysis_date,
                         st.session_state.aging_holidays
                     )
