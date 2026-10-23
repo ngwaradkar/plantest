@@ -1434,70 +1434,93 @@ with config_expander:
     with col_engine:
         with st.container(border=True):
             st.markdown("#### ⚙️ ICE Engine Starting Stocks")
-            st.markdown("<small style='color:#8896AB'>Enter clearance counts for ICE engines (Defaults: 0)</small>", unsafe_allow_html=True)
-            
-            eng_vals = {}
-            if 'engine_df' in st.session_state and st.session_state.engine_df is not None:
-                for idx, r_eng in st.session_state.engine_df.iterrows():
-                    p_no = str(r_eng['Engine Part No']).strip()
-                    eng_vals[p_no] = int(r_eng.get('Clearance After 6:30AM', 0))
+            st.markdown("<small style='color:#8896AB'>Click on <b>Qty</b> values to edit. You can also copy‑paste a column from Excel.</small>", unsafe_allow_html=True)
 
-            tcf1_engine_list = [
+            # Engine model definitions
+            _tcf1_engines = [
                 ("54850000PTP001", "Punch MT SA"),
                 ("54850000PTP002", "Punch AMT SA"),
                 ("54970000PTP002", "Punch TC MCE"),
                 ("54970000PTP003", "Punch MCE MT"),
                 ("54970000PTP004", "Punch MCE AMT"),
                 ("54970000PTP005", "Punch MCE CNG MT"),
-                ("54970000PTP031", "Punch MCE CNG AMT")
+                ("54970000PTP031", "Punch MCE CNG AMT"),
+            ]
+            _tcf2_engines = [
+                ("572900000118",   "Harrier / Safari Diesel AT"),
+                ("572900000120",   "Harrier / Safari Diesel MT"),
+                ("54780000PTP001", "Harrier / Safari Petrol TGDI MT"),
+                ("54780000PTP002", "Harrier / Safari Petrol TGDI AT"),
             ]
 
-            tcf2_engine_list = [
-                ("572900000118", "Harrier / Safari Diesel AT"),
-                ("572900000120", "Harrier / Safari Diesel MT"),
-                ("54780000PTP001", "Harrier / Safari TGDI MT"),
-                ("54780000PTP002", "Harrier / Safari TGDI AT")
-            ]
+            # Load current values
+            _eng_cur = {}
+            if 'engine_df' in st.session_state and st.session_state.engine_df is not None:
+                for _i, _r in st.session_state.engine_df.iterrows():
+                    _eng_cur[str(_r['Engine Part No']).strip()] = int(_r.get('Clearance After 6:30AM', 0))
 
-            new_eng_input_vals = {}
+            # --- TCF1 Table ---
+            st.markdown("<div style='font-weight:700; font-size:12.5px; color:#3B82F6; padding:10px 0 4px 2px; border-bottom:2px solid #3B82F6; margin-bottom:2px; letter-spacing:0.3px;'>🏭 TCF1 — Punch ICE</div>", unsafe_allow_html=True)
+            _tcf1_data = pd.DataFrame([
+                {"Model": m, "Qty": _eng_cur.get(p, 0)} for p, m in _tcf1_engines
+            ])
+            _tcf1_height = 37 + len(_tcf1_data) * 35 + 3
+            _tcf1_edited = st.data_editor(
+                _tcf1_data,
+                column_config={
+                    "Model": st.column_config.TextColumn("Model", disabled=True),
+                    "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1, format="%d"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",
+                height=_tcf1_height,
+                key="eng_tcf1_editor",
+            )
 
-            st.markdown("<div style='font-weight: 700; font-size: 13px; color: #3B82F6; margin-top: 6px; margin-bottom: 6px;'>TCF1 Engines (Punch ICE)</div>", unsafe_allow_html=True)
-            tcf1_cols = st.columns(3)
-            for idx, (p_no, model_name) in enumerate(tcf1_engine_list):
-                c_idx = idx % 3
-                curr_val = eng_vals.get(p_no, 0)
-                with tcf1_cols[c_idx]:
-                    st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{model_name}</div>", unsafe_allow_html=True)
-                    new_eng_input_vals[p_no] = st.number_input(
-                        label=model_name,
-                        min_value=0,
-                        value=int(curr_val),
-                        step=1,
-                        key=f"eng_input_{p_no}",
-                        label_visibility="collapsed"
-                    )
+            # --- TCF2 Table ---
+            st.markdown("<div style='font-weight:700; font-size:12.5px; color:#3B82F6; padding:10px 0 4px 2px; border-bottom:2px solid #3B82F6; margin-bottom:2px; letter-spacing:0.3px;'>🏭 TCF2 — Harrier / Safari ICE</div>", unsafe_allow_html=True)
+            _tcf2_data = pd.DataFrame([
+                {"Model": m, "Qty": _eng_cur.get(p, 0)} for p, m in _tcf2_engines
+            ])
+            _tcf2_height = 37 + len(_tcf2_data) * 35 + 3
+            _tcf2_edited = st.data_editor(
+                _tcf2_data,
+                column_config={
+                    "Model": st.column_config.TextColumn("Model", disabled=True),
+                    "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1, format="%d"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",
+                height=_tcf2_height,
+                key="eng_tcf2_editor",
+            )
 
-            st.markdown("<div style='font-weight: 700; font-size: 13px; color: #3B82F6; margin-top: 10px; margin-bottom: 6px;'>TCF2 Engines (Harrier / Safari ICE)</div>", unsafe_allow_html=True)
-            tcf2_cols = st.columns(3)
-            for idx, (p_no, model_name) in enumerate(tcf2_engine_list):
-                curr_val = eng_vals.get(p_no, 0)
-                with tcf2_cols[idx % 3]:
-                    st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{model_name}</div>", unsafe_allow_html=True)
-                    new_eng_input_vals[p_no] = st.number_input(
-                        label=model_name,
-                        min_value=0,
-                        value=int(curr_val),
-                        step=1,
-                        key=f"eng_input_{p_no}",
-                        label_visibility="collapsed"
-                    )
-
-            st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
             if st.button("💾 Save Engine Starting Stocks", type="primary", use_container_width=True, key="save_engine_btn"):
-                for idx, r_eng in st.session_state.engine_df.iterrows():
-                    p_no = str(r_eng['Engine Part No']).strip()
-                    if p_no in new_eng_input_vals:
-                        st.session_state.engine_df.at[idx, 'Clearance After 6:30AM'] = new_eng_input_vals[p_no]
+                # Map TCF1 edited values back
+                for _idx, (_pno, _model) in enumerate(_tcf1_engines):
+                    for _j, _r in st.session_state.engine_df.iterrows():
+                        if str(_r['Engine Part No']).strip() == _pno:
+                            _val = _tcf1_edited.at[_idx, 'Qty']
+                            try:
+                                _qty = int(float(_val)) if pd.notna(_val) else 0
+                            except Exception:
+                                _qty = 0
+                            st.session_state.engine_df.at[_j, 'Clearance After 6:30AM'] = max(0, _qty)
+                            break
+                # Map TCF2 edited values back
+                for _idx, (_pno, _model) in enumerate(_tcf2_engines):
+                    for _j, _r in st.session_state.engine_df.iterrows():
+                        if str(_r['Engine Part No']).strip() == _pno:
+                            _val = _tcf2_edited.at[_idx, 'Qty']
+                            try:
+                                _qty = int(float(_val)) if pd.notna(_val) else 0
+                            except Exception:
+                                _qty = 0
+                            st.session_state.engine_df.at[_j, 'Clearance After 6:30AM'] = max(0, _qty)
+                            break
                 try:
                     dl.save_engine_stocks_to_db(st.session_state.engine_df)
                 except Exception:
@@ -1506,68 +1529,6 @@ with config_expander:
                 st.session_state.run_report = True
                 st.rerun()
 
-        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-        with st.container(border=True):
-            reset_card_bg = "rgba(225, 29, 72, 0.05)" if is_dark_theme else "#FFF1F2"
-            reset_border = "rgba(225, 29, 72, 0.25)" if is_dark_theme else "#FECDD3"
-            reset_text_color = "#FDA4AF" if is_dark_theme else "#9F1239"
-            reset_subtext = "#94A3B8" if is_dark_theme else "#64748B"
-
-            st.markdown(f"""
-            <div style="background-color: {reset_card_bg}; border: 1px solid {reset_border}; border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 15px;">🔄</span>
-                        <span style="font-weight: 700; font-size: 13px; color: {reset_text_color}; font-family: 'Inter', sans-serif;">Shift Start Stock Reset</span>
-                    </div>
-                    <span style="font-size: 11px; background: rgba(225, 29, 72, 0.12); color: {reset_text_color}; padding: 2px 8px; border-radius: 12px; font-weight: 600;">Manual Trigger</span>
-                </div>
-                <div style="font-size: 11px; color: {reset_subtext}; margin-bottom: 8px; line-height: 1.4;">
-                    Resets all starting clearance quantities to 0 and clears daily uploaded report cache.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            if st.button("🔄 Reset Clearances to 0 (Shift Start)", type="primary", use_container_width=True, key="reset_clearances_btn"):
-                st.session_state.engine_df = pd.DataFrame(engine_default_data)
-                st.session_state.nova_materials_df = pd.DataFrame(nova_default_data)
-                st.session_state.model_shortages_df = pd.DataFrame(columns=['Model', 'Part Name', 'Clearance Qty'])
-                
-                # Explicitly update input widget keys in session state to 0 so the UI resets
-                for item in engine_default_data:
-                    p_no = item['Engine Part No']
-                    st.session_state[f"eng_input_{p_no}"] = 0
-                for idx_m in range(5):
-                    st.session_state[f"nova_input_{idx_m}"] = 0
-
-                try:
-                    dl.save_engine_stocks_to_db(st.session_state.engine_df)
-                    dl.save_nova_stocks_to_db(st.session_state.nova_materials_df)
-                    dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
-                except Exception:
-                    pass
-                now_time = get_ist_now()
-                st.session_state.last_reset_time = now_time
-                try:
-                    dl.save_metadata('last_reset_time', now_time.isoformat())
-                except Exception:
-                    pass
-                # Clear uploaded file registry in metadata and session state buffers (except BOM which is constant)
-                for cat in all_categories:
-                    if cat == 'BOM':
-                        continue  # Master BOM details remain constant all the time
-                    try:
-                        dl.save_metadata(f"uploaded_{cat}", "")
-                        dl.save_metadata(f"upload_time_{cat}", "")
-                    except Exception:
-                        pass
-                    if f"buffer_{cat}" in st.session_state:
-                        del st.session_state[f"buffer_{cat}"]
-                    if f"upload_time_{cat}" in st.session_state:
-                        del st.session_state[f"upload_time_{cat}"]
-                st.session_state.run_report = False
-                st.toast("🔄 Engine clearances and daily report upload registries reset (Master BOM preserved)!", icon="🔄")
-                st.rerun()
 
 core_available = 'BOM' in loaded_data and ('FLOAT_REPORT' in loaded_data or 'FLOAT_PAINT_SUMMARY' in loaded_data)
 
@@ -4402,13 +4363,19 @@ with tcf_tabs[0]:
         html_hourly_table += "</tbody></table></div>"
         st.markdown(html_hourly_table, unsafe_allow_html=True)
 
-        # Visual Analytics: TCF1 and TCF2 Attractive Separate Dropping Charts
-        with st.expander("📈 View Hourly Dropping Line Charts (TCF1 & TCF2 Separate Lines)", expanded=False):
+        # Visual Analytics: TCF1 and TCF2 Attractive Separate Charts for VIN Generation & Dropping
+        with st.expander("📈 View Hourly Trend Line Charts (VIN Generation & Dropping)", expanded=False):
             tcf1_drop_data = []
             tcf2_drop_data = []
+            tcf1_vin_data = []
+            tcf2_vin_data = []
+
             for c in time_cols:
                 h1_d, _ = _parse_cell_val(tcf1_drop[c]) if tcf1_drop is not None else (0, 0)
                 h2_d, _ = _parse_cell_val(tcf2_drop[c]) if tcf2_drop is not None else (0, 0)
+                h1_v, _ = _parse_cell_val(tcf1_vin[c]) if tcf1_vin is not None else (0, 0)
+                h2_v, _ = _parse_cell_val(tcf2_vin[c]) if tcf2_vin is not None else (0, 0)
+
                 m = re.match(r'(\d{1,2})(?::(\d{2}))?\s*([AP]M)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*([AP]M)', str(c), re.I)
                 if m:
                     h1, m1, p1, h2, m2, p2 = m.groups()
@@ -4418,77 +4385,100 @@ with tcf_tabs[0]:
                     slot_label = f"{t1}-{t2} {period.upper()}"
                 else:
                     slot_label = str(c).replace(':00', '').replace(' ', '')
-                tcf1_drop_data.append({
-                    'Time Slot': slot_label,
-                    'Hourly Cabs Dropped': h1_d
-                })
-                tcf2_drop_data.append({
-                    'Time Slot': slot_label,
-                    'Hourly Cabs Dropped': h2_d
-                })
 
-            def _build_attractive_drop_chart(data_list, color_theme):
-                df_c = pd.DataFrame(data_list)
-                max_v = df_c['Hourly Cabs Dropped'].max() if not df_c.empty else 10
+                tcf1_drop_data.append({'Time Slot': slot_label, 'Hourly Qty': h1_d})
+                tcf2_drop_data.append({'Time Slot': slot_label, 'Hourly Qty': h2_d})
+                tcf1_vin_data.append({'Time Slot': slot_label, 'Hourly Qty': h1_v})
+                tcf2_vin_data.append({'Time Slot': slot_label, 'Hourly Qty': h2_v})
+
+            all_shift_slots = [d['Time Slot'] for d in tcf1_drop_data]
+
+            def _prepare_series(data_list):
+                last_idx = max([i for i, d in enumerate(data_list) if d['Hourly Qty'] > 0], default=-1)
+                series = []
+                for i, d in enumerate(data_list):
+                    val = d['Hourly Qty'] if (last_idx >= 0 and i <= last_idx) else None
+                    series.append({'Time Slot': d['Time Slot'], 'Hourly Qty': val})
+                return series, last_idx
+
+            tcf1_drop_series, last_drop1 = _prepare_series(tcf1_drop_data)
+            tcf2_drop_series, last_drop2 = _prepare_series(tcf2_drop_data)
+            tcf1_vin_series, last_vin1 = _prepare_series(tcf1_vin_data)
+            tcf2_vin_series, last_vin2 = _prepare_series(tcf2_vin_data)
+
+            def _build_hourly_trend_chart(full_data_list, all_slots, color_theme, y_label='Count / Hour'):
+                if not full_data_list:
+                    return None
+                df_full = pd.DataFrame(full_data_list)
+                df_valid = df_full.dropna(subset=['Hourly Qty']).copy()
+                df_valid['Hourly Qty'] = df_valid['Hourly Qty'].astype(float)
+
+                max_v = df_valid['Hourly Qty'].max() if not df_valid.empty else 10
                 y_max = max(max_v * 1.35, max_v + 6)
-                
-                base_c = alt.Chart(df_c).encode(
-                    x=alt.X('Time Slot:N', sort=None, title=None, axis=alt.Axis(labelAngle=-25, labelFontSize=11, labelFontWeight='bold', labelColor='#334155')),
-                    y=alt.Y('Hourly Cabs Dropped:Q', title='Cabs / Hour', scale=alt.Scale(domain=[0, y_max]), axis=alt.Axis(grid=True, gridColor='rgba(0,0,0,0.06)', labelFontSize=11, labelFontWeight='bold'))
+
+                x_axis = alt.X(
+                    'Time Slot:N',
+                    sort=None,
+                    scale=alt.Scale(domain=all_slots),
+                    title=None,
+                    axis=alt.Axis(labelAngle=-25, labelFontSize=11, labelFontWeight='bold', labelColor='#334155')
                 )
-                
-                area_c = base_c.mark_area(
-                    opacity=0.18,
-                    color=color_theme
+
+                y_axis = alt.Y(
+                    'Hourly Qty:Q',
+                    title=y_label,
+                    scale=alt.Scale(domain=[0, y_max]),
+                    axis=alt.Axis(grid=True, gridColor='rgba(0,0,0,0.06)', labelFontSize=11, labelFontWeight='bold')
                 )
-                
-                line_c = base_c.mark_line(
-                    color=color_theme,
-                    size=3.5,
-                    interpolate='monotone'
-                )
-                
-                points_c = base_c.mark_circle(
-                    size=120,
-                    color=color_theme,
-                    opacity=1
-                )
-                
-                points_inner = base_c.mark_circle(
-                    size=35,
-                    color='#ffffff',
-                    opacity=1
-                )
-                
-                text_c = base_c.mark_text(
-                    align='center',
-                    baseline='bottom',
-                    dy=-10,
-                    fontSize=13,
-                    fontWeight='bold',
-                    color=color_theme
-                ).encode(
-                    text='Hourly Cabs Dropped:Q'
-                )
-                
-                final_chart = (area_c + line_c + points_c + points_inner + text_c).properties(
-                    height=270
-                ).configure_view(
-                    strokeWidth=0
-                )
+
+                base_c = alt.Chart(df_full).mark_point(opacity=0).encode(x=x_axis, y=y_axis)
+                layers = [base_c]
+                if not df_valid.empty:
+                    area_c = alt.Chart(df_valid).mark_area(opacity=0.18, color=color_theme).encode(x=x_axis, y=y_axis)
+                    line_c = alt.Chart(df_valid).mark_line(color=color_theme, size=3.5, interpolate='monotone').encode(x=x_axis, y=y_axis)
+                    points_c = alt.Chart(df_valid).mark_circle(size=120, color=color_theme, opacity=1).encode(x=x_axis, y=y_axis)
+                    points_inner = alt.Chart(df_valid).mark_circle(size=35, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
+                    text_c = alt.Chart(df_valid).mark_text(
+                        align='center', baseline='bottom', dy=-10, fontSize=13, fontWeight='bold', color=color_theme
+                    ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
+                    layers.extend([area_c, line_c, points_c, points_inner, text_c])
+
+                final_chart = alt.layer(*layers).properties(height=270).configure_view(strokeWidth=0)
                 return final_chart
 
-            chart_col1, chart_col2 = st.columns(2)
-            with chart_col1:
-                st.markdown("##### 🟢 TCF1 Line Hourly Dropping Trend")
-                if tcf1_drop_data:
-                    chart_tcf1 = _build_attractive_drop_chart(tcf1_drop_data, '#059669')
-                    st.altair_chart(chart_tcf1, use_container_width=True)
-            with chart_col2:
-                st.markdown("##### 🟠 TCF2 Line Hourly Dropping Trend")
-                if tcf2_drop_data:
-                    chart_tcf2 = _build_attractive_drop_chart(tcf2_drop_data, '#ea580c')
-                    st.altair_chart(chart_tcf2, use_container_width=True)
+            tab_vin, tab_drop = st.tabs(["🚗 VIN Generation Trends (TCF1 & TCF2)", "🏭 Dropping Trends (TCF1 & TCF2)"])
+
+            with tab_vin:
+                v_col1, v_col2 = st.columns(2)
+                with v_col1:
+                    st.markdown("##### 🔵 TCF1 Line Hourly VIN Generation Trend")
+                    chart_v1 = _build_hourly_trend_chart(tcf1_vin_series, all_shift_slots, '#2563EB', y_label='VINs / Hour')
+                    if chart_v1:
+                        st.altair_chart(chart_v1, use_container_width=True)
+                with v_col2:
+                    st.markdown("##### 🟣 TCF2 Line Hourly VIN Generation Trend")
+                    chart_v2 = _build_hourly_trend_chart(tcf2_vin_series, all_shift_slots, '#4F46E5', y_label='VINs / Hour')
+                    if chart_v2:
+                        st.altair_chart(chart_v2, use_container_width=True)
+                latest_v = max(last_vin1, last_vin2)
+                if latest_v >= 0 and latest_v < len(all_shift_slots) - 1:
+                    st.caption(f"⏱️ Trend displays actual VIN generation up to **{all_shift_slots[latest_v]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
+
+            with tab_drop:
+                d_col1, d_col2 = st.columns(2)
+                with d_col1:
+                    st.markdown("##### 🟢 TCF1 Line Hourly Dropping Trend")
+                    chart_d1 = _build_hourly_trend_chart(tcf1_drop_series, all_shift_slots, '#059669', y_label='Cabs / Hour')
+                    if chart_d1:
+                        st.altair_chart(chart_d1, use_container_width=True)
+                with d_col2:
+                    st.markdown("##### 🟠 TCF2 Line Hourly Dropping Trend")
+                    chart_d2 = _build_hourly_trend_chart(tcf2_drop_series, all_shift_slots, '#EA580C', y_label='Cabs / Hour')
+                    if chart_d2:
+                        st.altair_chart(chart_d2, use_container_width=True)
+                latest_d = max(last_drop1, last_drop2)
+                if latest_d >= 0 and latest_d < len(all_shift_slots) - 1:
+                    st.caption(f"⏱️ Trend displays actual dropping up to **{all_shift_slots[latest_d]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
 
         # Excel Export for Hourly Production Tracker
         export_hourly_rows = []
