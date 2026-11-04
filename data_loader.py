@@ -605,25 +605,31 @@ def load_stock_grouped(filepath_or_buffer, sheet_name, vc_col_idx, part_col_idx,
             pass
     # Read the sheet with no header to get index-based access
     # Detect file type
-    if isinstance(filepath_or_buffer, str):
-        ext = os.path.splitext(filepath_or_buffer.lower())[1]
-        if ext == '.xlsb':
-            df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='pyxlsb', header=None)
-        else:
-            df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='xlrd' if ext == '.xls' else 'openpyxl', header=None)
-    else:
-        # Uploaded bytes - let's check name if possible, otherwise try xlrd/openpyxl
-        # We try to read it as excel
-        try:
-            df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='openpyxl', header=None)
-        except Exception:
-            try:
-                # Seek back to 0
-                filepath_or_buffer.seek(0)
-                df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='xlrd', header=None)
-            except Exception:
-                filepath_or_buffer.seek(0)
+    df = None
+    try:
+        if isinstance(filepath_or_buffer, str):
+            ext = os.path.splitext(filepath_or_buffer.lower())[1]
+            if ext == '.xlsb':
                 df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='pyxlsb', header=None)
+            else:
+                df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='xlrd' if ext == '.xls' else 'openpyxl', header=None)
+        else:
+            # Uploaded bytes - let's check name if possible, otherwise try xlrd/openpyxl
+            # We try to read it as excel
+            try:
+                df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='openpyxl', header=None)
+            except Exception:
+                try:
+                    filepath_or_buffer.seek(0)
+                    df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='xlrd', header=None)
+                except Exception:
+                    filepath_or_buffer.seek(0)
+                    df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='pyxlsb', header=None)
+    except Exception:
+        return {}, {}
+        
+    if df is None or df.empty or len(df) <= skip_rows:
+        return {}, {}
                 
     # Slice the data, skipping headers
     data = df.iloc[skip_rows:].copy()

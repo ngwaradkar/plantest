@@ -1764,21 +1764,27 @@ try:
         
         # ----------------- PBS QUEUE ALLOCATION (FOR TCF1 & TCF2 LINE TABS) -----------------
         # Cabs physically in PBS buffer (PBS LIFT not null)
-        pbs_all = float_df[float_df['PBS LIFT'].notna()].copy()
-        
-        is_hold_pbs = pbs_all['HOLD BY'].notna() & (pbs_all['HOLD BY'].astype(str).str.strip() != '') & (pbs_all['HOLD BY'].astype(str).str.upper() != 'NONE')
-        pbs_on_hold = pbs_all[is_hold_pbs].copy()
-        pbs_active = pbs_all[~is_hold_pbs].copy()
-        
-        tcf1_queue = pbs_active[pbs_active['SHOP'] == 'TCF1'].copy()
-        tcf2_queue = pbs_active[pbs_active['SHOP'] == 'TCF2'].copy()
-        
-        tcf1_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
-        tcf2_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
+        if float_df is not None and not float_df.empty and 'PBS LIFT' in float_df.columns:
+            pbs_all = float_df[float_df['PBS LIFT'].notna()].copy()
+            is_hold_pbs = pbs_all['HOLD BY'].notna() & (pbs_all['HOLD BY'].astype(str).str.strip() != '') & (pbs_all['HOLD BY'].astype(str).str.upper() != 'NONE')
+            pbs_on_hold = pbs_all[is_hold_pbs].copy()
+            pbs_active = pbs_all[~is_hold_pbs].copy()
+            
+            tcf1_queue = pbs_active[pbs_active['SHOP'] == 'TCF1'].copy()
+            tcf2_queue = pbs_active[pbs_active['SHOP'] == 'TCF2'].copy()
+            
+            tcf1_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
+            tcf2_queue.sort_values(by='PBS LIFT', ascending=True, inplace=True)
+        else:
+            pbs_all = pd.DataFrame()
+            pbs_on_hold = pd.DataFrame()
+            pbs_active = pd.DataFrame()
+            tcf1_queue = pd.DataFrame()
+            tcf2_queue = pd.DataFrame()
         
         # Build Punch EV (Nova) true material stock dict (Starting Clearance minus TCF1 Backflushed Drops)
         true_nova_dict = {}
-        nova_backflushed = eng_cons_tcf1.get('546816111212', 0)
+        nova_backflushed = eng_cons_tcf1.get('546816111212', 0) if eng_cons_tcf1 else 0
         if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None and not st.session_state.nova_materials_df.empty:
             for idx, r_nova in st.session_state.nova_materials_df.iterrows():
                 mat_name = str(r_nova['Material']).strip()
@@ -1820,25 +1826,29 @@ try:
         tcf2_alloc_df = pd.DataFrame(tcf2_alloc)
         
         # ----------------- TOTAL FLOAT QUEUE ALLOCATION (FOR TOTAL FLOAT SEARCH & EXCEL EXPORT) -----------------
-        is_hold_float = float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.upper() != 'NONE')
-        float_active = float_df[~is_hold_float].copy()
-        
-        tcf1_total_queue = float_active[float_active['SHOP'] == 'TCF1'].copy()
-        tcf2_total_queue = float_active[float_active['SHOP'] == 'TCF2'].copy()
-        
-        stage_sort_cols = [c for c in ['PBS LIFT', 'TOPCOAT', 'SEALANT', 'PTCED', 'BIW LIFTING'] if c in float_df.columns]
-        if stage_sort_cols:
-            tcf1_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
-            tcf2_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
+        if float_df is not None and not float_df.empty:
+            is_hold_float = float_df['HOLD BY'].notna() & (float_df['HOLD BY'].astype(str).str.strip() != '') & (float_df['HOLD BY'].astype(str).str.upper() != 'NONE')
+            float_active = float_df[~is_hold_float].copy()
+            
+            tcf1_total_queue = float_active[float_active['SHOP'] == 'TCF1'].copy()
+            tcf2_total_queue = float_active[float_active['SHOP'] == 'TCF2'].copy()
+            
+            stage_sort_cols = [c for c in ['PBS LIFT', 'TOPCOAT', 'SEALANT', 'PTCED', 'BIW LIFTING'] if c in float_df.columns]
+            if stage_sort_cols:
+                tcf1_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
+                tcf2_total_queue.sort_values(by=stage_sort_cols, ascending=[True]*len(stage_sort_cols), na_position='last', inplace=True)
 
-        tcf1_total_alloc, _ = ae.run_allocation(
-            tcf1_total_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1,
-            true_nova=true_nova_dict, model_shortages=model_shortages_list
-        )
-        tcf2_total_alloc, _ = ae.run_allocation(
-            tcf2_total_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2,
-            model_shortages=model_shortages_list
-        )
+            tcf1_total_alloc, _ = ae.run_allocation(
+                tcf1_total_queue, bom_df, true_engine_tcf1, true_cockpit_tcf1, true_wiring_tcf1,
+                true_nova=true_nova_dict, model_shortages=model_shortages_list
+            )
+            tcf2_total_alloc, _ = ae.run_allocation(
+                tcf2_total_queue, bom_df, true_engine_tcf2, true_cockpit_tcf2, true_wiring_tcf2,
+                model_shortages=model_shortages_list
+            )
+        else:
+            tcf1_total_alloc = []
+            tcf2_total_alloc = []
         
         tcf1_total_alloc_df = pd.DataFrame(tcf1_total_alloc)
         tcf2_total_alloc_df = pd.DataFrame(tcf2_total_alloc)
@@ -1949,9 +1959,9 @@ try:
             
             # Combined stock registry for shortage calculation
             combined_true_stocks = {
-                'engine': {**true_engine_tcf1, **true_engine_tcf2},
-                'cockpit': {**true_cockpit_tcf1, **true_cockpit_tcf2},
-                'wiring': {**true_wiring_tcf1, **true_wiring_tcf2}
+                'engine': {**(true_engine_tcf1 or {}), **(true_engine_tcf2 or {})} if (true_engine_tcf1 is not None or true_engine_tcf2 is not None) else None,
+                'cockpit': {**(true_cockpit_tcf1 or {}), **(true_cockpit_tcf2 or {})} if (true_cockpit_tcf1 is not None or true_cockpit_tcf2 is not None) else None,
+                'wiring': {**(true_wiring_tcf1 or {}), **(true_wiring_tcf2 or {})} if (true_wiring_tcf1 is not None or true_wiring_tcf2 is not None) else None
             }
             
             shortage_report_df = ae.calculate_stagewise_shortage(float_stages_df, bom_df, combined_true_stocks)

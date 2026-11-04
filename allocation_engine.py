@@ -15,6 +15,9 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col, bom_lo
       - consumed: dict of {part_number: consumed_qty}
       - warnings: list of strings (e.g. part number went negative)
     """
+    if shift_start_stock is None:
+        return None, {}, []
+        
     true_stock = shift_start_stock.copy()
     consumed = {part: 0 for part in shift_start_stock}
     warnings = []
@@ -329,6 +332,9 @@ def get_paint_float_stages(df_float):
     Classifies each cab in the float report into its current stage in the paint flow.
     Flow order: BIW LIFTING -> PTCED -> SEALANT -> TOPCOAT -> PBS LIFT (closest to TCF)
     """
+    if df_float is None or df_float.empty:
+        return pd.DataFrame()
+        
     stages = []
     
     for idx, row in df_float.iterrows():
@@ -415,6 +421,9 @@ def calculate_stagewise_shortage(df_float_stages, bom, true_stocks, bom_lookup=N
     Returns:
       - shortage_report: DataFrame with columns: Stage, TCF Line, Aggregate Type, Part Number, Demand in Stage, Cumulative Demand, True Stock, Net Balance, Status
     """
+    if df_float_stages is None or df_float_stages.empty:
+        return pd.DataFrame()
+        
     # Sort order of stages (from closest to TCF to furthest)
     stage_order = ['1. PBS LIFT', '2. TOPCOAT', '3. SEALANT', '4. PTCED', '5. BIW LIFTING']
     
