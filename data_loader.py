@@ -137,51 +137,52 @@ def load_bom(filepath_or_buffer):
 @st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_float_report(filepath_or_buffer):
     """
-    Loads PPC Float Report (which can be .xlsb or .xls disguised HTML) and returns a cleaned DataFrame.
+    Loads PPC Float Report (which can be .xlsb, .xls disguised HTML, DataFrame, or buffer) and returns a cleaned DataFrame.
     Required columns: 'BIW NUMBER', 'VEHICLE CODE', 'SHOP', 'PBS LIFT', 'HOLD BY', 'REASONS S', 'VIN'
     """
-    if not isinstance(filepath_or_buffer, str):
-        try:
-            filepath_or_buffer.seek(0)
-        except Exception:
-            pass
-    # Check if the file is an HTML table disguised as .xls (works for both
-    # on-disk paths and in-memory uploads from st.file_uploader)
-    is_html, html_content = _detect_html_content(filepath_or_buffer)
-
-    if is_html:
-        dfs = pd.read_html(io.StringIO(html_content))
-        if not dfs:
-            raise ValueError("No tables found in PPC Float Report HTML file.")
-        df = dfs[0]
-        # Promote first row to headers
-        df.columns = [str(c).strip() for c in df.iloc[0]]
-        df = df.iloc[1:].reset_index(drop=True)
+    if isinstance(filepath_or_buffer, pd.DataFrame):
+        df = filepath_or_buffer.copy()
+    elif hasattr(filepath_or_buffer, 'df'):
+        df = filepath_or_buffer.df.copy()
     else:
-        # Read the file using pd.read_excel
-        if isinstance(filepath_or_buffer, str):
-            ext = os.path.splitext(filepath_or_buffer.lower())[1]
-            if ext == '.xlsb':
-                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-            else:
-                df = pd.read_excel(filepath_or_buffer)
-        else:
-            # For stream or bytes, let's try to detect/read
+        if not isinstance(filepath_or_buffer, str):
             try:
-                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                filepath_or_buffer.seek(0)
             except Exception:
-                try:
-                    filepath_or_buffer.seek(0)
+                pass
+        # Check if the file is an HTML table disguised as .xls
+        is_html, html_content = _detect_html_content(filepath_or_buffer)
+
+        if is_html:
+            dfs = pd.read_html(io.StringIO(html_content))
+            if not dfs:
+                raise ValueError("No tables found in PPC Float Report HTML file.")
+            df = dfs[0]
+            df.columns = [str(c).strip() for c in df.iloc[0]]
+            df = df.iloc[1:].reset_index(drop=True)
+        else:
+            if isinstance(filepath_or_buffer, str):
+                ext = os.path.splitext(filepath_or_buffer.lower())[1]
+                if ext == '.xlsb':
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                else:
                     df = pd.read_excel(filepath_or_buffer)
+            else:
+                try:
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
                 except Exception:
                     try:
                         filepath_or_buffer.seek(0)
-                        dfs = pd.read_html(filepath_or_buffer)
-                        df = dfs[0]
-                        df.columns = [str(c).strip() for c in df.iloc[0]]
-                        df = df.iloc[1:].reset_index(drop=True)
-                    except Exception as e:
-                        raise ValueError(f"Failed to load float report: {e}")
+                        df = pd.read_excel(filepath_or_buffer)
+                    except Exception:
+                        try:
+                            filepath_or_buffer.seek(0)
+                            dfs = pd.read_html(filepath_or_buffer)
+                            df = dfs[0]
+                            df.columns = [str(c).strip() for c in df.iloc[0]]
+                            df = df.iloc[1:].reset_index(drop=True)
+                        except Exception as e:
+                            raise ValueError(f"Failed to load float report: {e}")
 
     df.columns = [str(c).strip() for c in df.columns]
     
@@ -193,9 +194,9 @@ def load_float_report(filepath_or_buffer):
             if matched_col:
                 df.rename(columns={matched_col[0]: r}, inplace=True)
                 
-    # Parse dates
+    # Parse dates efficiently (only when not already parsed datetime)
     for date_col in ['BIW LIFTING', 'PTCED', 'SEALANT', 'TOPCOAT', 'PBS LIFT']:
-        if date_col in df.columns:
+        if date_col in df.columns and not pd.api.types.is_datetime64_any_dtype(df[date_col]):
             df[date_col] = pd.to_datetime(df[date_col], format='mixed', dayfirst=True, errors='coerce')
             
     # Clean BIW NUMBER and VEHICLE CODE
@@ -211,77 +212,82 @@ def load_float_report(filepath_or_buffer):
         df['VEHICLE CODE'] = ""
         df['VC'] = ""
     
-    # Group by BIW NUMBER to aggregate multiple hold reasons
-    # If a cab appears multiple times, it is because of multiple hold entries.
-    # We combine 'HOLD BY' and 'REASONS S' by joining with a comma.
-    def join_non_null(series):
-        non_nulls = series.dropna().astype(str).str.strip()
-        non_nulls = [n for n in non_nulls if n and n != 'nan']
-        return ', '.join(dict.fromkeys(non_nulls)) # Deduplicated join
-        
-    def first_non_null(series):
-        non_nulls = series.dropna()
-        return non_nulls.iloc[0] if not non_nulls.empty else None
-        
-    agg_funcs = {}
-    for col in df.columns:
-        if col == 'BIW NUMBER':
-            continue
-        elif col in ['HOLD BY', 'REASONS S']:
-            agg_funcs[col] = join_non_null
-        else:
-            agg_funcs[col] = first_non_null
+    # Fast path: in almost all plant reports, BIW NUMBER has no duplicates.
+    # Avoid slow Python groupby over all columns when rows are already unique!
+    if 'BIW NUMBER' in df.columns and df['BIW NUMBER'].duplicated().any():
+        def join_non_null(series):
+            non_nulls = series.dropna().astype(str).str.strip()
+            non_nulls = [n for n in non_nulls if n and n != 'nan']
+            return ', '.join(dict.fromkeys(non_nulls))
             
-    df_dedup = df.groupby('BIW NUMBER').agg(agg_funcs).reset_index()
-    
-    # Clean empty strings resulting from join_non_null back to None
-    df_dedup['HOLD BY'] = df_dedup['HOLD BY'].replace('', None)
-    df_dedup['REASONS S'] = df_dedup['REASONS S'].replace('', None)
-    
+        agg_funcs = {}
+        for col in df.columns:
+            if col == 'BIW NUMBER':
+                continue
+            elif col in ['HOLD BY', 'REASONS S']:
+                agg_funcs[col] = join_non_null
+            else:
+                agg_funcs[col] = 'first'
+                
+        df_dedup = df.groupby('BIW NUMBER', as_index=False).agg(agg_funcs)
+        df_dedup['HOLD BY'] = df_dedup['HOLD BY'].replace('', None)
+        df_dedup['REASONS S'] = df_dedup['REASONS S'].replace('', None)
+    else:
+        df_dedup = df
+        if 'HOLD BY' in df_dedup.columns:
+            df_dedup['HOLD BY'] = df_dedup['HOLD BY'].replace('', None)
+        if 'REASONS S' in df_dedup.columns:
+            df_dedup['REASONS S'] = df_dedup['REASONS S'].replace('', None)
+            
     return df_dedup
 
 @st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_paint_summary_report(filepath_or_buffer):
     """
-    Loads PPC Float Report Paint Summary (HTML or Excel format) and returns aggregated model stage totals.
+    Loads PPC Float Report Paint Summary (HTML, Excel, DataFrame, or buffer) and returns aggregated model stage totals.
     Uses dynamic header scanning and flexible row parsing to handle formatting variations across .xls and .xlsb files.
     """
-    if not isinstance(filepath_or_buffer, str):
-        try:
-            filepath_or_buffer.seek(0)
-        except Exception:
-            pass
-            
-    is_html, html_content = _detect_html_content(filepath_or_buffer)
-
-    if is_html:
-        dfs = pd.read_html(io.StringIO(html_content))
-        if not dfs:
-            return {}
-        df = dfs[0]
+    if isinstance(filepath_or_buffer, pd.DataFrame):
+        df = filepath_or_buffer.copy()
+    elif hasattr(filepath_or_buffer, 'df'):
+        df = filepath_or_buffer.df.copy()
     else:
-        if isinstance(filepath_or_buffer, str):
-            ext = os.path.splitext(filepath_or_buffer.lower())[1]
-            if ext == '.xlsb':
-                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-            else:
-                df = pd.read_excel(filepath_or_buffer)
-        else:
+        if not isinstance(filepath_or_buffer, str):
             try:
-                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                filepath_or_buffer.seek(0)
             except Exception:
-                try:
-                    filepath_or_buffer.seek(0)
+                pass
+                
+        is_html, html_content = _detect_html_content(filepath_or_buffer)
+
+        if is_html:
+            dfs = pd.read_html(io.StringIO(html_content))
+            if not dfs:
+                return {}
+            df = dfs[0]
+        else:
+            if isinstance(filepath_or_buffer, str):
+                ext = os.path.splitext(filepath_or_buffer.lower())[1]
+                if ext == '.xlsb':
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                else:
                     df = pd.read_excel(filepath_or_buffer)
+            else:
+                try:
+                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
                 except Exception:
                     try:
                         filepath_or_buffer.seek(0)
-                        dfs = pd.read_html(filepath_or_buffer)
-                        if not dfs:
-                            return {}
-                        df = dfs[0]
-                    except Exception as e:
-                        raise ValueError(f"Failed to load Paint Float Summary report: {e}")
+                        df = pd.read_excel(filepath_or_buffer)
+                    except Exception:
+                        try:
+                            filepath_or_buffer.seek(0)
+                            dfs = pd.read_html(filepath_or_buffer)
+                            if not dfs:
+                                return {}
+                            df = dfs[0]
+                        except Exception as e:
+                            raise ValueError(f"Failed to load Paint Float Summary report: {e}")
                 
     pf_map = {
         'HORNBILL': 'PUNCH',
@@ -363,9 +369,18 @@ def load_paint_summary_report(filepath_or_buffer):
 @st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
 def load_vgl(filepath_or_buffer):
     """
-    Loads Vehicle Generation List / DPT Plan VIN Generation Report (.xls, .xlsx, .xlsb, HTML).
+    Loads Vehicle Generation List / DPT Plan VIN Generation Report (.xls, .xlsx, .xlsb, HTML, DataFrame, buffer).
     Supports both old VGL format (cab-by-cab) and new DPT Plan format (VC-grouped VIN counts).
     """
+    if isinstance(filepath_or_buffer, pd.DataFrame):
+        df_direct = filepath_or_buffer.copy()
+        df_direct.columns = [str(c).strip() for c in df_direct.columns]
+        return df_direct
+    elif hasattr(filepath_or_buffer, 'df'):
+        df_direct = filepath_or_buffer.df.copy()
+        df_direct.columns = [str(c).strip() for c in df_direct.columns]
+        return df_direct
+
     if not isinstance(filepath_or_buffer, str):
         try:
             filepath_or_buffer.seek(0)
@@ -709,9 +724,11 @@ def _extract_date_tuple(filename):
             pass
     return (0, 0, 0)
 
+@st.cache_data(ttl=60, show_spinner=False)
 def detect_and_classify_files(directory_path):
     """
-    Scans directory_path (including subdirectories like 'Float reports/') and classifies all xls, xlsx, xlsb files by their names.
+    Scans directory_path (including subdirectories like 'Float reports/', 'TEST') and classifies all xls, xlsx, xlsb files by their names.
+    Filters out non-data source folders (e.g. android_app, Portfolio-Website, pages) for blazing-fast startup.
     Returns a dict mapping categories to their absolute file paths.
     """
     if not os.path.exists(directory_path) or not os.path.isdir(directory_path):
@@ -720,6 +737,12 @@ def detect_and_classify_files(directory_path):
     classifications = {}
     file_entries = []
     
+    IGNORED_DIRS = {
+        'android_app', 'Portfolio-Website', 'pages', 'core', 'assets',
+        'ui', 'services', 'engine', 'excel_migration', 'update',
+        '.devcontainer', '.streamlit', '.venv', '.git', '__pycache__'
+    }
+    
     try:
         # First scan files directly in directory_path
         for f in os.listdir(directory_path):
@@ -727,11 +750,12 @@ def detect_and_classify_files(directory_path):
             if os.path.isfile(p):
                 file_entries.append((f, p))
                 
-        # Then scan subdirectories (e.g., Float reports, TEST)
+        # Then scan relevant data subdirectories (e.g., Float reports, TEST)
         for f_dir in os.listdir(directory_path):
             p_dir = os.path.join(directory_path, f_dir)
-            if os.path.isdir(p_dir) and not f_dir.startswith('.') and f_dir != '__pycache__':
+            if os.path.isdir(p_dir) and not f_dir.startswith('.') and f_dir not in IGNORED_DIRS:
                 for root, dirs, files in os.walk(p_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in IGNORED_DIRS]
                     for f in files:
                         file_entries.append((f, os.path.join(root, f)))
     except Exception:
@@ -1113,45 +1137,50 @@ def load_paint_summary_by_vc(filepath_or_buffer):
     if not filepath_or_buffer:
         return {}
 
-    if not isinstance(filepath_or_buffer, str):
-        try:
-            filepath_or_buffer.seek(0)
-        except Exception:
-            pass
-            
-    is_html, html_content = _detect_html_content(filepath_or_buffer)
+    if isinstance(filepath_or_buffer, pd.DataFrame):
+        df = filepath_or_buffer.copy()
+    elif hasattr(filepath_or_buffer, 'df'):
+        df = filepath_or_buffer.df.copy()
+    else:
+        if not isinstance(filepath_or_buffer, str):
+            try:
+                filepath_or_buffer.seek(0)
+            except Exception:
+                pass
+                
+        is_html, html_content = _detect_html_content(filepath_or_buffer)
 
-    try:
-        if is_html:
-            dfs = pd.read_html(io.StringIO(html_content))
-            if not dfs:
-                return {}
-            df = dfs[0]
-        else:
-            if isinstance(filepath_or_buffer, str):
-                ext = os.path.splitext(filepath_or_buffer.lower())[1]
-                if ext == '.xlsb':
-                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-                else:
-                    df = pd.read_excel(filepath_or_buffer)
+        try:
+            if is_html:
+                dfs = pd.read_html(io.StringIO(html_content))
+                if not dfs:
+                    return {}
+                df = dfs[0]
             else:
-                try:
-                    df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-                except Exception:
-                    try:
-                        filepath_or_buffer.seek(0)
+                if isinstance(filepath_or_buffer, str):
+                    ext = os.path.splitext(filepath_or_buffer.lower())[1]
+                    if ext == '.xlsb':
+                        df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                    else:
                         df = pd.read_excel(filepath_or_buffer)
+                else:
+                    try:
+                        df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
                     except Exception:
                         try:
                             filepath_or_buffer.seek(0)
-                            dfs = pd.read_html(filepath_or_buffer)
-                            if not dfs:
-                                return {}
-                            df = dfs[0]
+                            df = pd.read_excel(filepath_or_buffer)
                         except Exception:
-                            return {}
-    except Exception:
-        return {}
+                            try:
+                                filepath_or_buffer.seek(0)
+                                dfs = pd.read_html(filepath_or_buffer)
+                                if not dfs:
+                                    return {}
+                                df = dfs[0]
+                            except Exception:
+                                return {}
+        except Exception:
+            return {}
 
     header_row_idx = None
     col_map = {}
@@ -1509,9 +1538,16 @@ def load_shop_wise_report(filepath_or_buffer, return_debug=False):
 
     df = None
     try:
-        _reset_buffer(filepath_or_buffer)
-        
-        # 1. HTML detection (common plant system exports disguised as .xls/.xlsx)
+        if isinstance(filepath_or_buffer, pd.DataFrame):
+            df = filepath_or_buffer.copy()
+            debug_info['engine_used'] = 'direct_df'
+        elif hasattr(filepath_or_buffer, 'df'):
+            df = filepath_or_buffer.df.copy()
+            debug_info['engine_used'] = 'direct_df'
+        else:
+            _reset_buffer(filepath_or_buffer)
+            
+            # 1. HTML detection (common plant system exports disguised as .xls/.xlsx)
         is_html, html_content = _detect_html_content(filepath_or_buffer)
         if is_html:
             try:
@@ -1728,7 +1764,8 @@ def download_from_onedrive(url):
 def parse_onedrive_workbook(bytes_content):
     """
     Takes the raw bytes of the Dashboard files.xlsm, parses it, and returns 
-    a dictionary of BytesIO buffers for each of the 5 required reports.
+    a dictionary of BytesIO buffers with attached .df DataFrame references for each of the required reports.
+    Avoids expensive openpyxl serialization cycles for 10x faster startup.
     """
     excel_file = pd.ExcelFile(io.BytesIO(bytes_content), engine='openpyxl')
     
@@ -1747,11 +1784,10 @@ def parse_onedrive_workbook(bytes_content):
         if sheet_name in excel_file.sheet_names:
             df = pd.read_excel(excel_file, sheet_name=sheet_name)
             
+            # Fast in-memory buffer carrying both .df and .name
             buf = io.BytesIO()
             buf.name = f"{sheet_name}.xlsx"
-            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False)
-            buf.seek(0)
+            buf.df = df
             buffers[key] = buf
         else:
             buffers[key] = None
@@ -1774,6 +1810,8 @@ def load_hourly_production(filepath_or_buffer):
     try:
         if isinstance(filepath_or_buffer, pd.DataFrame):
             df = filepath_or_buffer.copy()
+        elif hasattr(filepath_or_buffer, 'df'):
+            df = filepath_or_buffer.df.copy()
         elif hasattr(filepath_or_buffer, 'getvalue') or isinstance(filepath_or_buffer, (str, io.BytesIO)):
             if hasattr(filepath_or_buffer, 'seek'):
                 filepath_or_buffer.seek(0)

@@ -45,13 +45,19 @@ def format_ist_mtime(filepath, fmt="%d-%m-%Y %I:%M %p"):
     except Exception:
         return None
 
-def perform_onedrive_sync(url):
+@st.cache_data(ttl=270, show_spinner=False)
+def fetch_and_parse_onedrive(url):
+    raw_bytes = dl.download_from_onedrive(url)
+    return dl.parse_onedrive_workbook(raw_bytes)
+
+def perform_onedrive_sync(url, force_refresh=False):
     try:
-        raw_bytes = dl.download_from_onedrive(url)
-        buffers = dl.parse_onedrive_workbook(raw_bytes)
+        if force_refresh:
+            fetch_and_parse_onedrive.clear()
+        buffers = fetch_and_parse_onedrive(url)
         upload_ts = format_ist_now("%d-%m-%Y %I:%M %p")
         for category, buf in buffers.items():
-            if buf:
+            if buf is not None:
                 st.session_state[f"buffer_{category}"] = buf
                 st.session_state[f"upload_time_{category}"] = upload_ts
                 dl.save_metadata(f"upload_time_{category}", upload_ts)
@@ -1093,7 +1099,7 @@ with config_expander:
                     if st.button("🔄 Sync Now", use_container_width=True):
                         target_url = input_url.strip() if input_url and input_url.strip() else PINNED_ONEDRIVE_URL
                         with st.spinner("Downloading and parsing OneDrive data..."):
-                            success, msg = perform_onedrive_sync(target_url)
+                            success, msg = perform_onedrive_sync(target_url, force_refresh=True)
                             if success:
                                 st.success(msg)
                                 dl.save_metadata('onedrive_url', target_url)
