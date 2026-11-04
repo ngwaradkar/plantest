@@ -4404,9 +4404,7 @@ with tcf_tabs[0]:
         html_hourly_table += "</tbody></table></div>"
         st.markdown(html_hourly_table, unsafe_allow_html=True)
 
-        # Visual Analytics: TCF1 and TCF2 Attractive Separate Charts for VIN Generation & Dropping
         # Visual Analytics: TCF1 and TCF2 Attractive Combined Charts for VIN Generation & Dropping
-        st.markdown("#### 📈 Hourly Trend Line Charts (VIN Generation & Dropping)")
         tcf1_drop_data = []
         tcf2_drop_data = []
         tcf1_vin_data = []
@@ -4552,24 +4550,28 @@ with tcf_tabs[0]:
             final_chart = alt.layer(*layers).properties(height=310).configure_view(strokeWidth=0)
             return final_chart
 
-        v_col1, v_col2 = st.columns(2)
-        with v_col1:
-            st.markdown("##### 🔵 TCF1: Hourly VIN Generation vs 🟢 Dropping")
-            st.caption("🔵 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟢 **Solid (Squares)**: Dropping")
-            chart1 = _build_combined_hourly_chart(tcf1_vin_series, tcf1_drop_series, all_shift_slots, '#2563EB', '#059669', vin_name='TCF1 VIN', drop_name='TCF1 Drop', y_label='TCF1 Cabs / Hour')
-            if chart1:
-                st.altair_chart(chart1, use_container_width=True)
+        with st.container(border=True):
+            st.markdown("<div style='font-weight:700; font-size:16px; margin-bottom:8px;'>📈 Hourly Trend Line Charts (VIN Generation & Dropping)</div>", unsafe_allow_html=True)
+            v_col1, v_col2 = st.columns(2)
+            with v_col1:
+                with st.container(border=True):
+                    st.markdown("##### 🔵 TCF1: Hourly VIN Generation vs 🟢 Dropping")
+                    st.caption("🔵 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟢 **Solid (Squares)**: Dropping")
+                    chart1 = _build_combined_hourly_chart(tcf1_vin_series, tcf1_drop_series, all_shift_slots, '#2563EB', '#059669', vin_name='TCF1 VIN', drop_name='TCF1 Drop', y_label='TCF1 Cabs / Hour')
+                    if chart1:
+                        st.altair_chart(chart1, use_container_width=True)
 
-        with v_col2:
-            st.markdown("##### 🟣 TCF2: Hourly VIN Generation vs 🟠 Dropping")
-            st.caption("🟣 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟠 **Solid (Squares)**: Dropping")
-            chart2 = _build_combined_hourly_chart(tcf2_vin_series, tcf2_drop_series, all_shift_slots, '#7C3AED', '#EA580C', vin_name='TCF2 VIN', drop_name='TCF2 Drop', y_label='TCF2 Cabs / Hour')
-            if chart2:
-                st.altair_chart(chart2, use_container_width=True)
+            with v_col2:
+                with st.container(border=True):
+                    st.markdown("##### 🟣 TCF2: Hourly VIN Generation vs 🟠 Dropping")
+                    st.caption("🟣 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟠 **Solid (Squares)**: Dropping")
+                    chart2 = _build_combined_hourly_chart(tcf2_vin_series, tcf2_drop_series, all_shift_slots, '#7C3AED', '#EA580C', vin_name='TCF2 VIN', drop_name='TCF2 Drop', y_label='TCF2 Cabs / Hour')
+                    if chart2:
+                        st.altair_chart(chart2, use_container_width=True)
 
-        latest_p = max(last_vin1, last_vin2, last_drop1, last_drop2)
-        if latest_p >= 0 and latest_p < len(all_shift_slots) - 1:
-            st.caption(f"⏱️ Trend displays actual hourly performance up to **{all_shift_slots[latest_p]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
+            latest_p = max(last_vin1, last_vin2, last_drop1, last_drop2)
+            if latest_p >= 0 and latest_p < len(all_shift_slots) - 1:
+                st.caption(f"⏱️ Trend displays actual hourly performance up to **{all_shift_slots[latest_p]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
 
         # Excel Export for Hourly Production Tracker
         export_hourly_rows = []
