@@ -1080,15 +1080,16 @@ with config_expander:
             sync_tab, upload_tab = st.tabs(["🔄 Auto-Sync", "📤 Manual Upload"])
             
             with sync_tab:
-                # Ensure input_url always defaults to the pinned URL if cleared
-                current_sync_url = st.session_state.get("onedrive_sync_url_input")
-                if not current_sync_url or not str(current_sync_url).strip():
-                    current_sync_url = db_onedrive_url or PINNED_ONEDRIVE_URL
-                    st.session_state["onedrive_sync_url_input"] = current_sync_url
+                # Ensure input_url session state is initialized
+                if "onedrive_sync_url_input" not in st.session_state or not str(st.session_state.get("onedrive_sync_url_input", "")).strip():
+                    st.session_state["onedrive_sync_url_input"] = db_onedrive_url or PINNED_ONEDRIVE_URL
+
+                def _handle_reset_pin():
+                    st.session_state["onedrive_sync_url_input"] = PINNED_ONEDRIVE_URL
+                    dl.save_metadata('onedrive_url', PINNED_ONEDRIVE_URL)
 
                 input_url = st.text_input(
                     "OneDrive / SharePoint URL",
-                    value=current_sync_url,
                     placeholder="e.g. Dashboard files.xlsm or SharePoint link...",
                     label_visibility="collapsed",
                     key="onedrive_sync_url_input"
@@ -1107,10 +1108,7 @@ with config_expander:
                             else:
                                 st.error(f"Sync failed: {msg}")
                 with col_pin_btn:
-                    if st.button("📌 Reset Pin", use_container_width=True, help="Reset to pinned SharePoint URL"):
-                        st.session_state["onedrive_sync_url_input"] = PINNED_ONEDRIVE_URL
-                        dl.save_metadata('onedrive_url', PINNED_ONEDRIVE_URL)
-                        st.rerun()
+                    st.button("📌 Reset Pin", on_click=_handle_reset_pin, use_container_width=True, help="Reset to pinned SharePoint URL")
                             
                 with col_auto_toggle:
                     st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
