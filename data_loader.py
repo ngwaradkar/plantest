@@ -29,6 +29,12 @@ def _hash_upload_buffer(b):
 # if a cache entry is ever wrong.
 _CACHE_TTL_SECONDS = 1800
 
+# Pinned default SharePoint URL for Auto-Sync
+PINNED_ONEDRIVE_URL = (
+    os.environ.get("ONEDRIVE_SYNC_URL")
+    or "https://tatamotors-my.sharepoint.com/:x:/p/ngw11000658/IQA-56-OYPWAS7qTVfKlUu9RAbUUh1BxPrEz_wi00kQzsns?e=BsSxnM"
+)
+
 def clean_part_number(val):
     if pd.isna(val):
         return None
@@ -1047,6 +1053,9 @@ def init_metadata_db():
 def save_metadata(key, value):
     """Saves a metadata key-value pair to the database."""
     init_metadata_db()
+    # Guard against saving empty onedrive_url which causes auto-sync clearing
+    if key == 'onedrive_url' and (value is None or not str(value).strip()):
+        value = PINNED_ONEDRIVE_URL
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, str(value)))
@@ -1061,10 +1070,19 @@ def load_metadata(key, default=None):
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
         row = cursor.fetchone()
-        if row:
+        if row and row[0] is not None:
+            val = str(row[0]).strip()
+            if key == 'onedrive_url':
+                # Never return empty or obsolete URL for onedrive_url
+                if not val or "RAXZMG9h9LvcVgMpY12fuK8M" in val:
+                    return PINNED_ONEDRIVE_URL
             return row[0]
+        if key == 'onedrive_url':
+            return default if (default and str(default).strip()) else PINNED_ONEDRIVE_URL
         return default
     except Exception:
+        if key == 'onedrive_url':
+            return default if (default and str(default).strip()) else PINNED_ONEDRIVE_URL
         return default
     finally:
         conn.close()
@@ -1077,9 +1095,12 @@ def get_all_metadata():
         cursor = conn.cursor()
         cursor.execute("SELECT key, value FROM metadata")
         rows = cursor.fetchall()
-        return {row[0]: row[1] for row in rows}
+        meta = {row[0]: row[1] for row in rows}
+        if 'onedrive_url' not in meta or not meta['onedrive_url'] or not str(meta['onedrive_url']).strip() or "RAXZMG9h9LvcVgMpY12fuK8M" in str(meta['onedrive_url']):
+            meta['onedrive_url'] = PINNED_ONEDRIVE_URL
+        return meta
     except Exception:
-        return {}
+        return {'onedrive_url': PINNED_ONEDRIVE_URL}
     finally:
         conn.close()
 
@@ -1668,7 +1689,9 @@ def download_from_onedrive(url):
     Downloads the Excel file from a OneDrive/SharePoint URL, or reads from a local path.
     Returns the file content as bytes.
     """
-    url = url.strip()
+    url = (url or "").strip()
+    if not url:
+        url = PINNED_ONEDRIVE_URL
     
     # If it's a local file path
     if not url.startswith('http'):

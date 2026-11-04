@@ -61,8 +61,17 @@ def perform_onedrive_sync(url):
     except Exception as e:
         return False, str(e)
 
+# Pinned Default OneDrive / SharePoint URL
+PINNED_ONEDRIVE_URL = getattr(dl, 'PINNED_ONEDRIVE_URL', "https://tatamotors-my.sharepoint.com/:x:/p/ngw11000658/IQA-56-OYPWAS7qTVfKlUu9RAbUUh1BxPrEz_wi00kQzsns?e=BsSxnM")
+
 # OneDrive Auto-Sync Logic & Telegram 15-Minute Auto-Send Logic
-db_onedrive_url = dl.load_metadata('onedrive_url', '')
+stored_onedrive_url = dl.load_metadata('onedrive_url', PINNED_ONEDRIVE_URL)
+if not stored_onedrive_url or not str(stored_onedrive_url).strip() or "RAXZMG9h9LvcVgMpY12fuK8M" in str(stored_onedrive_url):
+    db_onedrive_url = PINNED_ONEDRIVE_URL
+    dl.save_metadata('onedrive_url', PINNED_ONEDRIVE_URL)
+else:
+    db_onedrive_url = str(stored_onedrive_url).strip()
+
 db_auto_sync = str(dl.load_metadata('onedrive_auto_sync', 'True')).lower() == 'true'
 db_tg_auto_send = str(dl.load_metadata('telegram_auto_send_15m', 'False')).lower() == 'true'
 
@@ -71,12 +80,13 @@ if db_tg_auto_send or st.session_state.get('telegram_auto_send_15m', False):
 elif db_auto_sync:
     st_autorefresh(interval=5 * 60 * 1000, key="onedrive_refresh")
 
-if db_auto_sync and db_onedrive_url:
+if db_auto_sync and (db_onedrive_url or PINNED_ONEDRIVE_URL):
+    sync_url = db_onedrive_url or PINNED_ONEDRIVE_URL
     last_sync = st.session_state.get('last_onedrive_sync')
     # Fetch if not synced this session, or if more than 270 seconds (4.5 mins) have passed
     if not last_sync or (datetime.datetime.now() - last_sync).total_seconds() > 270:
         with st.spinner("🔄 Auto-syncing live data from OneDrive..."):
-            perform_onedrive_sync(db_onedrive_url)
+            perform_onedrive_sync(sync_url)
 
 # Initialize session state for theme preference from database
 db_theme = '☀️ White Theme'
@@ -1064,22 +1074,37 @@ with config_expander:
             sync_tab, upload_tab = st.tabs(["🔄 Auto-Sync", "📤 Manual Upload"])
             
             with sync_tab:
-                input_url = st.text_input("OneDrive / SharePoint URL", value=db_onedrive_url, placeholder="e.g. Dashboard files.xlsm or SharePoint link...", label_visibility="collapsed")
+                # Ensure input_url always defaults to the pinned URL if cleared
+                current_sync_url = st.session_state.get("onedrive_sync_url_input")
+                if not current_sync_url or not str(current_sync_url).strip():
+                    current_sync_url = db_onedrive_url or PINNED_ONEDRIVE_URL
+                    st.session_state["onedrive_sync_url_input"] = current_sync_url
+
+                input_url = st.text_input(
+                    "OneDrive / SharePoint URL",
+                    value=current_sync_url,
+                    placeholder="e.g. Dashboard files.xlsm or SharePoint link...",
+                    label_visibility="collapsed",
+                    key="onedrive_sync_url_input"
+                )
                 
-                col_sync_btn, col_auto_toggle = st.columns([1, 1])
+                col_sync_btn, col_pin_btn, col_auto_toggle = st.columns([1.2, 1.0, 1.3])
                 with col_sync_btn:
                     if st.button("🔄 Sync Now", use_container_width=True):
-                        if input_url:
-                            with st.spinner("Downloading and parsing OneDrive data..."):
-                                success, msg = perform_onedrive_sync(input_url)
-                                if success:
-                                    st.success(msg)
-                                    dl.save_metadata('onedrive_url', input_url)
-                                    st.rerun()
-                                else:
-                                    st.error(f"Sync failed: {msg}")
-                        else:
-                            st.warning("Please enter a URL first.")
+                        target_url = input_url.strip() if input_url and input_url.strip() else PINNED_ONEDRIVE_URL
+                        with st.spinner("Downloading and parsing OneDrive data..."):
+                            success, msg = perform_onedrive_sync(target_url)
+                            if success:
+                                st.success(msg)
+                                dl.save_metadata('onedrive_url', target_url)
+                                st.rerun()
+                            else:
+                                st.error(f"Sync failed: {msg}")
+                with col_pin_btn:
+                    if st.button("📌 Reset Pin", use_container_width=True, help="Reset to pinned SharePoint URL"):
+                        st.session_state["onedrive_sync_url_input"] = PINNED_ONEDRIVE_URL
+                        dl.save_metadata('onedrive_url', PINNED_ONEDRIVE_URL)
+                        st.rerun()
                             
                 with col_auto_toggle:
                     st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
@@ -1088,8 +1113,10 @@ with config_expander:
                         dl.save_metadata('onedrive_auto_sync', str(new_auto_sync))
                         st.rerun()
                         
-                if input_url != db_onedrive_url and input_url:
-                    dl.save_metadata('onedrive_url', input_url)
+                # Persist updated URL if valid and changed
+                clean_input = input_url.strip() if input_url else ""
+                if clean_input and clean_input != db_onedrive_url:
+                    dl.save_metadata('onedrive_url', clean_input)
 
             with upload_tab:
                 uploaded_files = st.file_uploader(
