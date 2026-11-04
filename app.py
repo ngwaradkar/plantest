@@ -4451,21 +4451,42 @@ with tcf_tabs[0]:
                 if not vin_series and not drop_series:
                     return None
 
-                df_v = pd.DataFrame(vin_series) if vin_series else pd.DataFrame(columns=['Time Slot', 'Hourly Qty'])
-                df_v['Metric'] = vin_name
-                df_d = pd.DataFrame(drop_series) if drop_series else pd.DataFrame(columns=['Time Slot', 'Hourly Qty'])
-                df_d['Metric'] = drop_name
+                df_v_raw = pd.DataFrame(vin_series) if vin_series else pd.DataFrame(columns=['Time Slot', 'Hourly Qty'])
+                df_d_raw = pd.DataFrame(drop_series) if drop_series else pd.DataFrame(columns=['Time Slot', 'Hourly Qty'])
 
-                df_full = pd.concat([df_v, df_d], ignore_index=True)
-                df_v_valid = df_v.dropna(subset=['Hourly Qty']).copy()
-                df_v_valid['Hourly Qty'] = df_v_valid['Hourly Qty'].astype(float)
-                
-                df_d_valid = df_d.dropna(subset=['Hourly Qty']).copy()
-                df_d_valid['Hourly Qty'] = df_d_valid['Hourly Qty'].astype(float)
+                # Slot dictionaries for dynamic smart label positioning
+                v_dict = {r['Time Slot']: r['Hourly Qty'] for _, r in df_v_raw.iterrows()}
+                d_dict = {r['Time Slot']: r['Hourly Qty'] for _, r in df_d_raw.iterrows()}
 
-                all_valid_qtys = list(df_v_valid['Hourly Qty']) + list(df_d_valid['Hourly Qty'])
+                v_rows = []
+                for s in all_slots:
+                    v = v_dict.get(s)
+                    d = d_dict.get(s)
+                    if v is not None and not pd.isna(v):
+                        # If drop exists and is strictly higher, place VIN below; otherwise above
+                        pos = 'below' if (d is not None and not pd.isna(d) and float(d) > float(v)) else 'above'
+                        v_rows.append({'Time Slot': s, 'Hourly Qty': float(v), 'Metric': vin_name, 'pos': pos})
+
+                d_rows = []
+                for s in all_slots:
+                    v = v_dict.get(s)
+                    d = d_dict.get(s)
+                    if d is not None and not pd.isna(d):
+                        # If VIN exists and is >= drop, place Drop below; otherwise above
+                        pos = 'above' if (v is not None and not pd.isna(v) and float(d) > float(v)) else ('below' if (v is not None and not pd.isna(v)) else 'above')
+                        d_rows.append({'Time Slot': s, 'Hourly Qty': float(d), 'Metric': drop_name, 'pos': pos})
+
+                df_v_valid = pd.DataFrame(v_rows)
+                df_d_valid = pd.DataFrame(d_rows)
+
+                # Base dataframe with all slots
+                df_full = pd.DataFrame([{'Time Slot': s, 'Hourly Qty': 0} for s in all_slots])
+
+                all_valid_qtys = list(df_v_valid['Hourly Qty']) if not df_v_valid.empty else []
+                if not df_d_valid.empty:
+                    all_valid_qtys.extend(list(df_d_valid['Hourly Qty']))
                 max_v = max(all_valid_qtys) if all_valid_qtys else 10
-                y_max = max(max_v * 1.35, max_v + 6)
+                y_max = max(max_v * 1.30 + 6, max_v + 8)
 
                 x_axis = alt.X(
                     'Time Slot:N',
@@ -4485,42 +4506,62 @@ with tcf_tabs[0]:
                 base_c = alt.Chart(df_full).mark_point(opacity=0).encode(x=x_axis, y=y_axis)
                 layers = [base_c]
 
-                # VIN Generation Layers (Solid line, circles, labels placed above)
-                if not df_v_valid.empty:
-                    area_v = alt.Chart(df_v_valid).mark_area(opacity=0.12, color=vin_color).encode(x=x_axis, y=y_axis)
-                    line_v = alt.Chart(df_v_valid).mark_line(color=vin_color, size=3.2, interpolate='monotone').encode(x=x_axis, y=y_axis)
-                    pt_v = alt.Chart(df_v_valid).mark_circle(size=115, color=vin_color, opacity=1).encode(x=x_axis, y=y_axis)
-                    pt_v_in = alt.Chart(df_v_valid).mark_circle(size=32, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
-                    txt_v = alt.Chart(df_v_valid).mark_text(
-                        align='center', baseline='bottom', dy=-10, fontSize=12, fontWeight='bold', color=vin_color
+                # Helper to add text marks with crisp white halo background so numbers are always razor sharp
+                def _add_halo_text(sub_df, dy_val, baseline_val, text_col):
+                    halo = alt.Chart(sub_df).mark_text(
+                        align='center', baseline=baseline_val, dy=dy_val, fontSize=13, fontWeight='bold',
+                        color=text_col, stroke='#ffffff', strokeWidth=3.5
                     ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
-                    layers.extend([area_v, line_v, pt_v, pt_v_in, txt_v])
+                    main_t = alt.Chart(sub_df).mark_text(
+                        align='center', baseline=baseline_val, dy=dy_val, fontSize=13, fontWeight='bold',
+                        color=text_col
+                    ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
+                    return [halo, main_t]
 
-                # Dropping Layers (Dashed line, squares, labels placed below)
+                # VIN Generation Layers (Solid line, circles)
+                if not df_v_valid.empty:
+                    area_v = alt.Chart(df_v_valid).mark_area(opacity=0.10, color=vin_color).encode(x=x_axis, y=y_axis)
+                    line_v = alt.Chart(df_v_valid).mark_line(color=vin_color, size=3.5, interpolate='monotone').encode(x=x_axis, y=y_axis)
+                    pt_v = alt.Chart(df_v_valid).mark_circle(size=125, color=vin_color, opacity=1).encode(x=x_axis, y=y_axis)
+                    pt_v_in = alt.Chart(df_v_valid).mark_circle(size=36, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
+                    layers.extend([area_v, line_v, pt_v, pt_v_in])
+
+                    v_above = df_v_valid[df_v_valid['pos'] == 'above']
+                    if not v_above.empty:
+                        layers.extend(_add_halo_text(v_above, -13, 'bottom', vin_color))
+                    v_below = df_v_valid[df_v_valid['pos'] == 'below']
+                    if not v_below.empty:
+                        layers.extend(_add_halo_text(v_below, 13, 'top', vin_color))
+
+                # Dropping Layers (Solid line - no dash! squares)
                 if not df_d_valid.empty:
                     area_d = alt.Chart(df_d_valid).mark_area(opacity=0.08, color=drop_color).encode(x=x_axis, y=y_axis)
-                    line_d = alt.Chart(df_d_valid).mark_line(color=drop_color, size=2.8, strokeDash=[5, 3], interpolate='monotone').encode(x=x_axis, y=y_axis)
-                    pt_d = alt.Chart(df_d_valid).mark_square(size=100, color=drop_color, opacity=1).encode(x=x_axis, y=y_axis)
-                    pt_d_in = alt.Chart(df_d_valid).mark_square(size=25, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
-                    txt_d = alt.Chart(df_d_valid).mark_text(
-                        align='center', baseline='top', dy=10, fontSize=12, fontWeight='bold', color=drop_color
-                    ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
-                    layers.extend([area_d, line_d, pt_d, pt_d_in, txt_d])
+                    line_d = alt.Chart(df_d_valid).mark_line(color=drop_color, size=3.5, interpolate='monotone').encode(x=x_axis, y=y_axis)
+                    pt_d = alt.Chart(df_d_valid).mark_square(size=115, color=drop_color, opacity=1).encode(x=x_axis, y=y_axis)
+                    pt_d_in = alt.Chart(df_d_valid).mark_square(size=30, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
+                    layers.extend([area_d, line_d, pt_d, pt_d_in])
 
-                final_chart = alt.layer(*layers).properties(height=280).configure_view(strokeWidth=0)
+                    d_above = df_d_valid[df_d_valid['pos'] == 'above']
+                    if not d_above.empty:
+                        layers.extend(_add_halo_text(d_above, -13, 'bottom', drop_color))
+                    d_below = df_d_valid[df_d_valid['pos'] == 'below']
+                    if not d_below.empty:
+                        layers.extend(_add_halo_text(d_below, 13, 'top', drop_color))
+
+                final_chart = alt.layer(*layers).properties(height=310).configure_view(strokeWidth=0)
                 return final_chart
 
             v_col1, v_col2 = st.columns(2)
             with v_col1:
                 st.markdown("##### 🔵 TCF1: Hourly VIN Generation vs 🟢 Dropping")
-                st.caption("🔵 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟢 **Dashed (Squares)**: Dropping")
+                st.caption("🔵 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟢 **Solid (Squares)**: Dropping")
                 chart1 = _build_combined_hourly_chart(tcf1_vin_series, tcf1_drop_series, all_shift_slots, '#2563EB', '#059669', vin_name='TCF1 VIN', drop_name='TCF1 Drop', y_label='TCF1 Cabs / Hour')
                 if chart1:
                     st.altair_chart(chart1, use_container_width=True)
 
             with v_col2:
                 st.markdown("##### 🟣 TCF2: Hourly VIN Generation vs 🟠 Dropping")
-                st.caption("🟣 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟠 **Dashed (Squares)**: Dropping")
+                st.caption("🟣 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟠 **Solid (Squares)**: Dropping")
                 chart2 = _build_combined_hourly_chart(tcf2_vin_series, tcf2_drop_series, all_shift_slots, '#7C3AED', '#EA580C', vin_name='TCF2 VIN', drop_name='TCF2 Drop', y_label='TCF2 Cabs / Hour')
                 if chart2:
                     st.altair_chart(chart2, use_container_width=True)
