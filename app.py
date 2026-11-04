@@ -4447,14 +4447,24 @@ with tcf_tabs[0]:
             tcf1_vin_series, last_vin1 = _prepare_series(tcf1_vin_data)
             tcf2_vin_series, last_vin2 = _prepare_series(tcf2_vin_data)
 
-            def _build_hourly_trend_chart(full_data_list, all_slots, color_theme, y_label='Count / Hour'):
-                if not full_data_list:
+            def _build_combined_hourly_chart(vin_series, drop_series, all_slots, vin_color, drop_color, vin_name='VIN Generation', drop_name='Dropping', y_label='Count / Hour'):
+                if not vin_series and not drop_series:
                     return None
-                df_full = pd.DataFrame(full_data_list)
-                df_valid = df_full.dropna(subset=['Hourly Qty']).copy()
-                df_valid['Hourly Qty'] = df_valid['Hourly Qty'].astype(float)
 
-                max_v = df_valid['Hourly Qty'].max() if not df_valid.empty else 10
+                df_v = pd.DataFrame(vin_series) if vin_series else pd.DataFrame(columns=['Time Slot', 'Hourly Qty'])
+                df_v['Metric'] = vin_name
+                df_d = pd.DataFrame(drop_series) if drop_series else pd.DataFrame(columns=['Time Slot', 'Hourly Qty'])
+                df_d['Metric'] = drop_name
+
+                df_full = pd.concat([df_v, df_d], ignore_index=True)
+                df_v_valid = df_v.dropna(subset=['Hourly Qty']).copy()
+                df_v_valid['Hourly Qty'] = df_v_valid['Hourly Qty'].astype(float)
+                
+                df_d_valid = df_d.dropna(subset=['Hourly Qty']).copy()
+                df_d_valid['Hourly Qty'] = df_d_valid['Hourly Qty'].astype(float)
+
+                all_valid_qtys = list(df_v_valid['Hourly Qty']) + list(df_d_valid['Hourly Qty'])
+                max_v = max(all_valid_qtys) if all_valid_qtys else 10
                 y_max = max(max_v * 1.35, max_v + 6)
 
                 x_axis = alt.X(
@@ -4474,52 +4484,50 @@ with tcf_tabs[0]:
 
                 base_c = alt.Chart(df_full).mark_point(opacity=0).encode(x=x_axis, y=y_axis)
                 layers = [base_c]
-                if not df_valid.empty:
-                    area_c = alt.Chart(df_valid).mark_area(opacity=0.18, color=color_theme).encode(x=x_axis, y=y_axis)
-                    line_c = alt.Chart(df_valid).mark_line(color=color_theme, size=3.5, interpolate='monotone').encode(x=x_axis, y=y_axis)
-                    points_c = alt.Chart(df_valid).mark_circle(size=120, color=color_theme, opacity=1).encode(x=x_axis, y=y_axis)
-                    points_inner = alt.Chart(df_valid).mark_circle(size=35, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
-                    text_c = alt.Chart(df_valid).mark_text(
-                        align='center', baseline='bottom', dy=-10, fontSize=13, fontWeight='bold', color=color_theme
-                    ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
-                    layers.extend([area_c, line_c, points_c, points_inner, text_c])
 
-                final_chart = alt.layer(*layers).properties(height=270).configure_view(strokeWidth=0)
+                # VIN Generation Layers (Solid line, circles, labels placed above)
+                if not df_v_valid.empty:
+                    area_v = alt.Chart(df_v_valid).mark_area(opacity=0.12, color=vin_color).encode(x=x_axis, y=y_axis)
+                    line_v = alt.Chart(df_v_valid).mark_line(color=vin_color, size=3.2, interpolate='monotone').encode(x=x_axis, y=y_axis)
+                    pt_v = alt.Chart(df_v_valid).mark_circle(size=115, color=vin_color, opacity=1).encode(x=x_axis, y=y_axis)
+                    pt_v_in = alt.Chart(df_v_valid).mark_circle(size=32, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
+                    txt_v = alt.Chart(df_v_valid).mark_text(
+                        align='center', baseline='bottom', dy=-10, fontSize=12, fontWeight='bold', color=vin_color
+                    ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
+                    layers.extend([area_v, line_v, pt_v, pt_v_in, txt_v])
+
+                # Dropping Layers (Dashed line, squares, labels placed below)
+                if not df_d_valid.empty:
+                    area_d = alt.Chart(df_d_valid).mark_area(opacity=0.08, color=drop_color).encode(x=x_axis, y=y_axis)
+                    line_d = alt.Chart(df_d_valid).mark_line(color=drop_color, size=2.8, strokeDash=[5, 3], interpolate='monotone').encode(x=x_axis, y=y_axis)
+                    pt_d = alt.Chart(df_d_valid).mark_square(size=100, color=drop_color, opacity=1).encode(x=x_axis, y=y_axis)
+                    pt_d_in = alt.Chart(df_d_valid).mark_square(size=25, color='#ffffff', opacity=1).encode(x=x_axis, y=y_axis)
+                    txt_d = alt.Chart(df_d_valid).mark_text(
+                        align='center', baseline='top', dy=10, fontSize=12, fontWeight='bold', color=drop_color
+                    ).encode(x=x_axis, y=y_axis, text=alt.Text('Hourly Qty:Q', format='d'))
+                    layers.extend([area_d, line_d, pt_d, pt_d_in, txt_d])
+
+                final_chart = alt.layer(*layers).properties(height=280).configure_view(strokeWidth=0)
                 return final_chart
 
-            tab_vin, tab_drop = st.tabs(["🚗 VIN Generation Trends (TCF1 & TCF2)", "🏭 Dropping Trends (TCF1 & TCF2)"])
+            v_col1, v_col2 = st.columns(2)
+            with v_col1:
+                st.markdown("##### 🔵 TCF1: Hourly VIN Generation vs 🟢 Dropping")
+                st.caption("🔵 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟢 **Dashed (Squares)**: Dropping")
+                chart1 = _build_combined_hourly_chart(tcf1_vin_series, tcf1_drop_series, all_shift_slots, '#2563EB', '#059669', vin_name='TCF1 VIN', drop_name='TCF1 Drop', y_label='TCF1 Cabs / Hour')
+                if chart1:
+                    st.altair_chart(chart1, use_container_width=True)
 
-            with tab_vin:
-                v_col1, v_col2 = st.columns(2)
-                with v_col1:
-                    st.markdown("##### 🔵 TCF1 Line Hourly VIN Generation Trend")
-                    chart_v1 = _build_hourly_trend_chart(tcf1_vin_series, all_shift_slots, '#2563EB', y_label='VINs / Hour')
-                    if chart_v1:
-                        st.altair_chart(chart_v1, use_container_width=True)
-                with v_col2:
-                    st.markdown("##### 🟣 TCF2 Line Hourly VIN Generation Trend")
-                    chart_v2 = _build_hourly_trend_chart(tcf2_vin_series, all_shift_slots, '#4F46E5', y_label='VINs / Hour')
-                    if chart_v2:
-                        st.altair_chart(chart_v2, use_container_width=True)
-                latest_v = max(last_vin1, last_vin2)
-                if latest_v >= 0 and latest_v < len(all_shift_slots) - 1:
-                    st.caption(f"⏱️ Trend displays actual VIN generation up to **{all_shift_slots[latest_v]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
+            with v_col2:
+                st.markdown("##### 🟣 TCF2: Hourly VIN Generation vs 🟠 Dropping")
+                st.caption("🟣 **Solid (Circles)**: VIN Generation &nbsp;&nbsp;|&nbsp;&nbsp; 🟠 **Dashed (Squares)**: Dropping")
+                chart2 = _build_combined_hourly_chart(tcf2_vin_series, tcf2_drop_series, all_shift_slots, '#7C3AED', '#EA580C', vin_name='TCF2 VIN', drop_name='TCF2 Drop', y_label='TCF2 Cabs / Hour')
+                if chart2:
+                    st.altair_chart(chart2, use_container_width=True)
 
-            with tab_drop:
-                d_col1, d_col2 = st.columns(2)
-                with d_col1:
-                    st.markdown("##### 🟢 TCF1 Line Hourly Dropping Trend")
-                    chart_d1 = _build_hourly_trend_chart(tcf1_drop_series, all_shift_slots, '#059669', y_label='Cabs / Hour')
-                    if chart_d1:
-                        st.altair_chart(chart_d1, use_container_width=True)
-                with d_col2:
-                    st.markdown("##### 🟠 TCF2 Line Hourly Dropping Trend")
-                    chart_d2 = _build_hourly_trend_chart(tcf2_drop_series, all_shift_slots, '#EA580C', y_label='Cabs / Hour')
-                    if chart_d2:
-                        st.altair_chart(chart_d2, use_container_width=True)
-                latest_d = max(last_drop1, last_drop2)
-                if latest_d >= 0 and latest_d < len(all_shift_slots) - 1:
-                    st.caption(f"⏱️ Trend displays actual dropping up to **{all_shift_slots[latest_d]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
+            latest_p = max(last_vin1, last_vin2, last_drop1, last_drop2)
+            if latest_p >= 0 and latest_p < len(all_shift_slots) - 1:
+                st.caption(f"⏱️ Trend displays actual hourly performance up to **{all_shift_slots[latest_p]}**. Remaining shift hours are displayed on the timeline and will plot as production begins.")
 
         # Excel Export for Hourly Production Tracker
         export_hourly_rows = []
