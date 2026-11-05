@@ -228,6 +228,11 @@ def load_float_report(filepath_or_buffer):
         df['VEHICLE CODE'] = ""
         df['VC'] = ""
     
+    # Ensure HOLD BY and REASONS S are cleanly cast to string to prevent PyArrow ArrowTypeError on mixed int/str
+    for col in ['HOLD BY', 'REASONS S']:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else None)
+
     # Fast path: in almost all plant reports, BIW NUMBER has no duplicates.
     # Avoid slow Python groupby over all columns when rows are already unique!
     if 'BIW NUMBER' in df.columns and df['BIW NUMBER'].duplicated().any():
@@ -254,6 +259,11 @@ def load_float_report(filepath_or_buffer):
             df_dedup['HOLD BY'] = df_dedup['HOLD BY'].replace('', None)
         if 'REASONS S' in df_dedup.columns:
             df_dedup['REASONS S'] = df_dedup['REASONS S'].replace('', None)
+            
+    # Guarantee consistent object types for PyArrow dataframe rendering
+    for col in ['HOLD BY', 'REASONS S']:
+        if col in df_dedup.columns:
+            df_dedup[col] = df_dedup[col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else None)
             
     return df_dedup
 
@@ -609,44 +619,247 @@ def load_vgl(filepath_or_buffer):
     
     return df
 
+_STOCK_SHEET_DIAGNOSTICS = {}
+
+def clear_sheet_diagnostics():
+    """Clear all recorded stock sheet diagnostics."""
+    global _STOCK_SHEET_DIAGNOSTICS
+    _STOCK_SHEET_DIAGNOSTICS = {}
+    try:
+        if 'stock_sheet_diagnostics' in st.session_state:
+            st.session_state['stock_sheet_diagnostics'] = {}
+    except Exception:
+        pass
+
+def record_sheet_diagnostic(file_label, status, message, expected=None, available=None, matched=None, filename=None):
+    """Record a sheet diagnostic for user-friendly UI display and error reporting."""
+    global _STOCK_SHEET_DIAGNOSTICS
+    entry = {
+        "file_label": file_label,
+        "filename": filename or file_label,
+        "status": status,
+        "message": message,
+        "expected_sheet": expected,
+        "available_sheets": available or [],
+        "matched_sheet": matched
+    }
+    _STOCK_SHEET_DIAGNOSTICS[file_label] = entry
+    try:
+        if 'stock_sheet_diagnostics' not in st.session_state:
+            st.session_state['stock_sheet_diagnostics'] = {}
+        st.session_state['stock_sheet_diagnostics'][file_label] = entry
+    except Exception:
+        pass
+
+def get_sheet_diagnostics():
+    """Retrieve all recorded stock sheet diagnostics."""
+    try:
+        if 'stock_sheet_diagnostics' in st.session_state and st.session_state['stock_sheet_diagnostics']:
+            return dict(st.session_state['stock_sheet_diagnostics'])
+    except Exception:
+        pass
+    return dict(_STOCK_SHEET_DIAGNOSTICS)
+
+def normalize_sheet_str(name):
+    """Normalize string by removing separators and collapsing whitespace."""
+    if not name:
+        return ""
+    s = str(name).strip().lower()
+    s = re.sub(r'[:._\-]+', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+def normalize_compressed(name):
+    """Remove all spaces and punctuation for strict similarity comparison."""
+    if not name:
+        return ""
+    return re.sub(r'[^a-z0-9]', '', str(name).lower())
+
+def find_best_sheet_match(available_sheets, target_sheet, aliases=None):
+    """
+    Finds the best matching sheet name from available_sheets.
+    Handles:
+    - Exact match
+    - Case insensitivity (e.g., 'Fresh vin PPC' vs 'Fresh VIN PPC')
+    - Extra whitespace or leading/trailing spaces
+    - Punctuation / separator differences (e.g. 6.30 vs 6:30 or underscores)
+    - Compressed similarity matching
+    - Recognized aliases and keyword matching
+    - Single sheet fallback
+    Returns: (matched_sheet_name, match_type) or (None, None)
+    """
+    if not available_sheets:
+        return None, None
+        
+    # 1. Exact match
+    if target_sheet in available_sheets:
+        return target_sheet, "exact"
+        
+    target_clean = str(target_sheet).strip()
+    target_lower = target_clean.lower()
+    target_norm = normalize_sheet_str(target_sheet)
+    target_comp = normalize_compressed(target_sheet)
+    
+    # 2. Case-insensitive & trimmed match
+    for s in available_sheets:
+        if str(s).strip().lower() == target_lower:
+            return s, "case_insensitive"
+            
+    # 3. Normalized match (ignoring separators, punctuation, multiple spaces)
+    for s in available_sheets:
+        if normalize_sheet_str(s) == target_norm:
+            return s, "normalized"
+            
+    # 4. Compressed match (ignoring all spaces and non-alphanumeric chars)
+    for s in available_sheets:
+        if normalize_compressed(s) == target_comp:
+            return s, "compressed"
+            
+    # 5. Candidate aliases / keyword lists
+    all_targets = [target_sheet] + (aliases if aliases else [])
+    for candidate in all_targets:
+        c_comp = normalize_compressed(candidate)
+        for s in available_sheets:
+            s_comp = normalize_compressed(s)
+            if c_comp and (c_comp in s_comp or s_comp in c_comp):
+                return s, f"keyword_{candidate}"
+                
+    # 6. Fallback if only 1 sheet in workbook
+    if len(available_sheets) == 1:
+        return available_sheets[0], "single_sheet_fallback"
+        
+    return None, None
+
+def get_workbook_sheet_names(filepath_or_buffer):
+    """
+    Safely retrieves the list of sheet names from an Excel file, path, or BytesIO buffer.
+    Tries openpyxl, pyxlsb, and xlrd in optimal order according to file extension.
+    Returns: (sheet_names_list, engine_used) or ([], None)
+    """
+    if filepath_or_buffer is None:
+        return [], None
+        
+    fname = getattr(filepath_or_buffer, 'name', '') or (filepath_or_buffer if isinstance(filepath_or_buffer, str) else '')
+    ext = os.path.splitext(str(fname).lower())[1]
+    
+    engines_to_try = []
+    if ext == '.xlsb':
+        engines_to_try = ['pyxlsb', 'openpyxl', 'xlrd']
+    elif ext == '.xls':
+        engines_to_try = ['xlrd', 'openpyxl', 'pyxlsb']
+    else:
+        engines_to_try = ['openpyxl', 'pyxlsb', 'xlrd']
+        
+    for eng in engines_to_try:
+        try:
+            if not isinstance(filepath_or_buffer, str):
+                filepath_or_buffer.seek(0)
+            xl = pd.ExcelFile(filepath_or_buffer, engine=eng)
+            sheets = xl.sheet_names
+            if sheets:
+                return sheets, eng
+        except Exception:
+            continue
+            
+    return [], None
+
+def check_file_sheet_status(filepath_or_buffer, expected_sheet, aliases=None):
+    """
+    Quickly verifies if an uploaded file has a valid sheet match.
+    Returns: (status, matched_sheet, available_sheets, message)
+    where status is 'ok', 'fuzzy_match', 'missing_sheet', or 'unreadable'.
+    """
+    if filepath_or_buffer is None:
+        return 'missing_file', None, [], "File not provided"
+    sheets, eng = get_workbook_sheet_names(filepath_or_buffer)
+    if not sheets:
+        return 'unreadable', None, [], "Could not read sheet list from file"
+    matched, m_type = find_best_sheet_match(sheets, expected_sheet, aliases)
+    if matched:
+        if matched == expected_sheet:
+            return 'ok', matched, sheets, f"Sheet '{matched}' verified"
+        else:
+            return 'fuzzy_match', matched, sheets, f"Resolved to '{matched}'"
+    return 'missing_sheet', None, sheets, f"Expected '{expected_sheet}', found: {sheets}"
+
 @st.cache_data(show_spinner=False, ttl=_CACHE_TTL_SECONDS, hash_funcs={io.BytesIO: _hash_upload_buffer})
-def load_stock_grouped(filepath_or_buffer, sheet_name, vc_col_idx, part_col_idx, qty_col_idx, skip_rows=2):
+def load_stock_grouped(filepath_or_buffer, sheet_name, vc_col_idx, part_col_idx, qty_col_idx, skip_rows=2, file_label="Stock File", aliases=None):
     """
-    Generic grouped-row stock parser.
-    Skips skip_rows, reads columns by index, forward-fills part_number and qty,
-    deduplicated to return a dict {part_number: qty}.
+    Generic grouped-row stock parser with intelligent fuzzy & case-insensitive sheet matching.
+    Resolves sheet name dynamically (e.g. 'Fresh vin PPC' matches 'Fresh VIN PPC').
+    If sheet is missing, records clear diagnostics so the user immediately knows which file and sheet failed.
     """
+    if filepath_or_buffer is None:
+        return {}, {}
+        
     if not isinstance(filepath_or_buffer, str):
         try:
             filepath_or_buffer.seek(0)
         except Exception:
             pass
-    # Read the sheet with no header to get index-based access
-    # Detect file type
+            
+    fname = getattr(filepath_or_buffer, 'name', '') or (filepath_or_buffer if isinstance(filepath_or_buffer, str) else 'Uploaded Buffer')
+    sheets, eng = get_workbook_sheet_names(filepath_or_buffer)
+    
+    if not sheets:
+        matched_sheet = sheet_name
+        eng = 'openpyxl'
+    else:
+        matched_sheet, m_type = find_best_sheet_match(sheets, sheet_name, aliases)
+        if not matched_sheet:
+            err_msg = (
+                f"Worksheet '{sheet_name}' was not found in {file_label}. "
+                f"Available sheet(s) in this file: {sheets}."
+            )
+            record_sheet_diagnostic(
+                file_label=file_label,
+                status="error",
+                message=err_msg,
+                expected=sheet_name,
+                available=sheets,
+                filename=fname
+            )
+            return {}, {}
+        else:
+            record_sheet_diagnostic(
+                file_label=file_label,
+                status="ok" if matched_sheet == sheet_name else "fuzzy_match",
+                message=f"Matched sheet '{matched_sheet}'" + (f" (via {m_type})" if matched_sheet != sheet_name else ""),
+                expected=sheet_name,
+                available=sheets,
+                matched=matched_sheet,
+                filename=fname
+            )
+
     df = None
     try:
-        if isinstance(filepath_or_buffer, str):
-            ext = os.path.splitext(filepath_or_buffer.lower())[1]
-            if ext == '.xlsb':
-                df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='pyxlsb', header=None)
-            else:
-                df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='xlrd' if ext == '.xls' else 'openpyxl', header=None)
-        else:
-            # Uploaded bytes - let's check name if possible, otherwise try xlrd/openpyxl
-            # We try to read it as excel
+        if not isinstance(filepath_or_buffer, str):
+            filepath_or_buffer.seek(0)
+        df = pd.read_excel(filepath_or_buffer, sheet_name=matched_sheet, engine=eng, header=None)
+    except Exception as e:
+        # Retry with alternate engines if reading failed
+        for alt_eng in ['openpyxl', 'pyxlsb', 'xlrd']:
+            if alt_eng == eng:
+                continue
             try:
-                df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='openpyxl', header=None)
+                if not isinstance(filepath_or_buffer, str):
+                    filepath_or_buffer.seek(0)
+                df = pd.read_excel(filepath_or_buffer, sheet_name=matched_sheet, engine=alt_eng, header=None)
+                if df is not None and not df.empty:
+                    break
             except Exception:
-                try:
-                    filepath_or_buffer.seek(0)
-                    df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='xlrd', header=None)
-                except Exception:
-                    filepath_or_buffer.seek(0)
-                    df = pd.read_excel(filepath_or_buffer, sheet_name=sheet_name, engine='pyxlsb', header=None)
-    except Exception:
-        return {}, {}
-        
+                continue
+                
     if df is None or df.empty or len(df) <= skip_rows:
+        err_msg = f"Sheet '{matched_sheet}' in {file_label} has insufficient data rows (<= {skip_rows})."
+        record_sheet_diagnostic(
+            file_label=file_label,
+            status="warning",
+            message=err_msg,
+            expected=sheet_name,
+            available=sheets,
+            matched=matched_sheet,
+            filename=fname
+        )
         return {}, {}
                 
     # Slice the data, skipping headers
@@ -1805,12 +2018,13 @@ def parse_onedrive_workbook(bytes_content):
     
     buffers = {}
     for key, sheet_name in sheet_mapping.items():
-        if sheet_name in excel_file.sheet_names:
-            df = pd.read_excel(excel_file, sheet_name=sheet_name)
+        matched_sheet, _ = find_best_sheet_match(excel_file.sheet_names, sheet_name)
+        if matched_sheet:
+            df = pd.read_excel(excel_file, sheet_name=matched_sheet)
             
             # Fast in-memory buffer carrying both .df and .name
             buf = io.BytesIO()
-            buf.name = f"{sheet_name}.xlsx"
+            buf.name = f"{matched_sheet}.xlsx"
             buf.df = df
             buffers[key] = buf
         else:

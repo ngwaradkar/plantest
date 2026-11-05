@@ -1038,7 +1038,7 @@ def get_hold_cabs_report(df_valid, biw_num_col, vin_col, vcode_col, prod_col, de
     df_hold["VEHICLE CODE"] = df_hold[vcode_col]
     df_hold["PRODUCT"] = df_hold["MODEL_NAME"]
     df_hold["COLOUR"] = df_hold[colour_col] if colour_col else ""
-    df_hold["HOLD BY"] = df_hold[hold_col]
+    df_hold["HOLD BY"] = df_hold[hold_col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'nan', 'None'] else '')
     df_hold["PTCED"] = df_hold[ptced_col].fillna("")
     df_hold["PBS LIFT"] = df_hold[pbs_col].fillna("")
 

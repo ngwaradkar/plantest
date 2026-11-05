@@ -1245,16 +1245,36 @@ with config_expander:
                     elif is_buffer:
                         upload_time = format_ist_now("%d-%m-%Y %I:%M %p")
 
+                stock_sheet_expectations = {
+                    'TCF1_ALTROZ_COCKPIT_STOCK': ('Fresh VIN PPC', ['fresh vin ppc', 'fresh vin', 'freshvin', 'cockpit', 'fresh']),
+                    'TCF1_NOVA_COCKPIT_STOCK': ('Fresh VIN PPC', ['fresh vin ppc', 'fresh vin', 'freshvin', 'cockpit', 'fresh']),
+                    'TCF2_COCKPIT_STOCK': ('Fresh VIN PPC', ['fresh vin ppc', 'fresh vin', 'freshvin', 'cockpit', 'fresh']),
+                    'TCF1_WIRING_STOCK': ('Coverage file 6.30 AM New', ['coverage file 6.30 am', 'coverage file 6:30 am', 'coverage file 6.30am', 'coverage file', 'coverage']),
+                    'TCF2_WIRING_STOCK': ('coverage file 6.30 pm', ['coverage file 6.30 pm', 'coverage file 6:30 pm', 'coverage file 6.30pm', 'coverage file', 'coverage']),
+                }
+
                 time_label = f"({upload_time})" if upload_time else "(No upload time)"
 
-                if in_mem_buffer is not None:
-                    loaded_data[category] = in_mem_buffer
-                    status_icon = "🟢 Uploaded"
-                    source_label = time_label
-                elif is_default_exists:
-                    loaded_data[category] = detected_path
-                    status_icon = "🟢 Uploaded"
-                    source_label = time_label
+                if in_mem_buffer is not None or is_default_exists:
+                    file_obj = in_mem_buffer if in_mem_buffer is not None else detected_path
+                    loaded_data[category] = file_obj
+                    
+                    if category in stock_sheet_expectations:
+                        target_s, aliases_s = stock_sheet_expectations[category]
+                        chk_stat, matched_s, avail_s, _ = dl.check_file_sheet_status(file_obj, target_s, aliases_s)
+                        if chk_stat == 'missing_sheet':
+                            status_icon = "⚠️ Sheet Missing"
+                            avail_preview = ", ".join(f"'{s}'" for s in avail_s[:3]) if avail_s else "None"
+                            source_label = f"Missing '{target_s}' (Found: {avail_preview})"
+                        elif chk_stat == 'fuzzy_match':
+                            status_icon = "🟢 Uploaded"
+                            source_label = f"{time_label} [Sheet: '{matched_s}']"
+                        else:
+                            status_icon = "🟢 Uploaded"
+                            source_label = time_label
+                    else:
+                        status_icon = "🟢 Uploaded"
+                        source_label = time_label
                 else:
                     status_icon = "🔴 Missing"
                     source_label = "(Pending for upload)"
@@ -1273,6 +1293,10 @@ with config_expander:
                     badge_bg = "#DCFCE7" if not is_dark_theme else "#064E3B"
                     badge_text = "#166534" if not is_dark_theme else "#D1FAE5"
                     badge_label = "✓ Uploaded"
+                elif "⚠️" in icon:
+                    badge_bg = "#FEF3C7" if not is_dark_theme else "#78350F"
+                    badge_text = "#B45309" if not is_dark_theme else "#FDE68A"
+                    badge_label = "⚠️ Sheet Error"
                 else:
                     badge_bg = "#FEE2E2" if not is_dark_theme else "#7F1D1D"
                     badge_text = "#DC2626" if not is_dark_theme else "#FEE2E2"
@@ -1412,17 +1436,21 @@ with config_expander:
                 
                 ms_disp_df = st.session_state.model_shortages_df.copy()
                 tcf1_tmp = st.session_state.get('tcf1_drops')
-                if tcf1_tmp is None and 'buffer_TCF1_VGL' in st.session_state and st.session_state['buffer_TCF1_VGL'] is not None:
-                    try:
-                        tcf1_tmp = dl.load_vgl(st.session_state['buffer_TCF1_VGL'])
-                    except Exception:
-                        pass
+                if tcf1_tmp is None:
+                    src_tcf1 = st.session_state.get('buffer_TCF1_VGL') or loaded_data.get('TCF1_VGL') or detected_files.get('TCF1_VGL')
+                    if src_tcf1 is not None:
+                        try:
+                            tcf1_tmp = dl.load_vgl(src_tcf1)
+                        except Exception:
+                            pass
                 tcf2_tmp = st.session_state.get('tcf2_drops')
-                if tcf2_tmp is None and 'buffer_TCF2_VGL' in st.session_state and st.session_state['buffer_TCF2_VGL'] is not None:
-                    try:
-                        tcf2_tmp = dl.load_vgl(st.session_state['buffer_TCF2_VGL'])
-                    except Exception:
-                        pass
+                if tcf2_tmp is None:
+                    src_tcf2 = st.session_state.get('buffer_TCF2_VGL') or loaded_data.get('TCF2_VGL') or detected_files.get('TCF2_VGL')
+                    if src_tcf2 is not None:
+                        try:
+                            tcf2_tmp = dl.load_vgl(src_tcf2)
+                        except Exception:
+                            pass
                 
                 for idx_ms, row_ms in ms_disp_df.iterrows():
                     c_qty = int(row_ms['Clearance Qty'])
@@ -1682,6 +1710,8 @@ try:
                         for a in attempts:
                             st.markdown(f"- `{a['stage']}`: {a['error']}")
         
+        dl.clear_sheet_diagnostics()
+        
         # 4. Parse stocks
         # Wiring Stock
         tcf1_wiring_start = None
@@ -1690,7 +1720,9 @@ try:
             tcf1_wiring_start, tcf1_wiring_vc_map = dl.load_stock_grouped(
                 loaded_data['TCF1_WIRING_STOCK'],
                 sheet_name='Coverage file 6.30 AM New',
-                vc_col_idx=2, part_col_idx=3, qty_col_idx=9
+                vc_col_idx=2, part_col_idx=3, qty_col_idx=9,
+                aliases=['coverage file 6.30 am', 'coverage file 6:30 am', 'coverage file 6.30am', 'coverage file', 'coverage'],
+                file_label='TCF1 WIRING STOCK (File 10)'
             )
             
         tcf2_wiring_start = None
@@ -1699,7 +1731,9 @@ try:
             tcf2_wiring_start, tcf2_wiring_vc_map = dl.load_stock_grouped(
                 loaded_data['TCF2_WIRING_STOCK'],
                 sheet_name='coverage file 6.30 pm',
-                vc_col_idx=1, part_col_idx=2, qty_col_idx=9
+                vc_col_idx=1, part_col_idx=2, qty_col_idx=9,
+                aliases=['coverage file 6.30 pm', 'coverage file 6:30 pm', 'coverage file 6.30pm', 'coverage file', 'coverage'],
+                file_label='TCF2 WIRING STOCK (File 11)'
             )
             
         # Cockpit Stock
@@ -1713,7 +1747,9 @@ try:
             altroz_start, altroz_map = dl.load_stock_grouped(
                 loaded_data['TCF1_ALTROZ_COCKPIT_STOCK'],
                 sheet_name='Fresh VIN PPC',
-                vc_col_idx=4, part_col_idx=3, qty_col_idx=12, skip_rows=3
+                vc_col_idx=4, part_col_idx=3, qty_col_idx=12, skip_rows=3,
+                aliases=['fresh vin ppc', 'fresh vin', 'freshvin', 'cockpit', 'fresh'],
+                file_label='TCF1 ALTROZ COCKPIT WH STOCK (File 7)'
             )
             tcf1_cockpit_start.update(altroz_start)
             tcf1_cockpit_vc_map.update(altroz_map)
@@ -1724,7 +1760,9 @@ try:
             nova_start, nova_map = dl.load_stock_grouped(
                 loaded_data['TCF1_NOVA_COCKPIT_STOCK'],
                 sheet_name='Fresh VIN PPC',
-                vc_col_idx=1, part_col_idx=0, qty_col_idx=9, skip_rows=3
+                vc_col_idx=1, part_col_idx=0, qty_col_idx=9, skip_rows=3,
+                aliases=['fresh vin ppc', 'fresh vin', 'freshvin', 'cockpit', 'fresh'],
+                file_label='TCF1 NOVA COCKPIT WH STOCK (File 8)'
             )
             tcf1_cockpit_start.update(nova_start)
             tcf1_cockpit_vc_map.update(nova_map)
@@ -1734,8 +1772,10 @@ try:
         if 'TCF2_COCKPIT_STOCK' in loaded_data:
             tcf2_cockpit_start, tcf2_cockpit_vc_map = dl.load_stock_grouped(
                 loaded_data['TCF2_COCKPIT_STOCK'],
-                sheet_name='Fresh vin PPC',
-                vc_col_idx=3, part_col_idx=1, qty_col_idx=9, skip_rows=3
+                sheet_name='Fresh VIN PPC',
+                vc_col_idx=3, part_col_idx=1, qty_col_idx=10, skip_rows=3,
+                aliases=['fresh vin ppc', 'fresh vin', 'freshvin', 'cockpit', 'fresh'],
+                file_label='TCF2 COCKPIT WH STOCK (File 9)'
             )
             
         # Load Engine Stock from data_editor
@@ -2374,6 +2414,20 @@ if active_clearance_shortage_alerts:
         alert_box_html += f"• <b>{al['Model']} [{al['Trims']}] - {al['Part Name']}</b>: Clearance Stock is <b>{al['Clearance Qty']}</b> vs Demand <b>{al['Demand Qty']}</b> (<span style='color:#DC2626; font-weight:700;'>Shortage: -{al['Shortage Qty']} units</span>)<br>"
     alert_box_html += "</div></div>"
     st.markdown(alert_box_html, unsafe_allow_html=True)
+
+# Check for any stock file sheet diagnostic errors/warnings
+sheet_diags = dl.get_sheet_diagnostics()
+sheet_errors = [d for d in sheet_diags.values() if d.get('status') == 'error']
+if sheet_errors:
+    for s_err in sheet_errors:
+        avail_fmt = ", ".join(f"<code>{s}</code>" for s in s_err.get('available_sheets', [])) if s_err.get('available_sheets') else "<em>None</em>"
+        st.error(
+            f"**⚠️ Sheet Configuration Error in {s_err['file_label']}**\n\n"
+            f"- **Expected Sheet:** `'{s_err['expected_sheet']}'`\n"
+            f"- **Available Sheets in File:** {avail_fmt}\n\n"
+            f"**Action Required:** Please rename the tab/sheet in **{s_err['filename']}** to `'{s_err['expected_sheet']}'` or re-upload the file.",
+            icon="🚫"
+        )
 
 # Toggle between TCF1, TCF2, Total Float Details, Combined Summary & Reports (Opening tab: Summary Report & Excel Download)
 tcf_tabs = st.tabs([
