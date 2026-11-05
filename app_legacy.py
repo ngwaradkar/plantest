@@ -2637,7 +2637,8 @@ with tcf_tabs[2]:
             
             # Ready to TCF Excel
             ready_df_tcf1 = filtered_df[filtered_df['STATUS'] == '✅ Ready for TCF'][display_cols].copy()
-            if not ready_df_tcf1.empty:
+            has_ready_tcf1_tot = ('tcf1_total_alloc_df' in locals() and tcf1_total_alloc_df is not None and not tcf1_total_alloc_df.empty and (tcf1_total_alloc_df['STATUS'] == '✅ Ready for TCF').any())
+            if not ready_df_tcf1.empty or has_ready_tcf1_tot:
                 buf_ready = io.BytesIO()
                 with pd.ExcelWriter(buf_ready, engine='openpyxl') as writer:
                     ready_df_tcf1.to_excel(writer, index=False, sheet_name='Ready to TCF1')
@@ -2645,15 +2646,15 @@ with tcf_tabs[2]:
                     hdr_fill = PatternFill(start_color='D8F3E5', end_color='D8F3E5', fill_type='solid')
                     hdr_font = Font(name='Calibri', size=11, bold=True, color='1B4D32')
                     thin_b = Border(left=Side(style='thin', color='BFBFBF'), right=Side(style='thin', color='BFBFBF'), top=Side(style='thin', color='BFBFBF'), bottom=Side(style='thin', color='BFBFBF'))
-                    for c in range(1, len(ready_df_tcf1.columns) + 1):
-                        cell = ws.cell(row=1, column=c)
+                    for col_idx in range(1, len(ready_df_tcf1.columns) + 1):
+                        cell = ws.cell(row=1, column=col_idx)
                         cell.font = hdr_font
                         cell.fill = hdr_fill
                         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
                         cell.border = thin_b
-                    for r in range(2, len(ready_df_tcf1) + 2):
-                        for c in range(1, len(ready_df_tcf1.columns) + 1):
-                            cell = ws.cell(row=r, column=c)
+                    for r_idx in range(2, len(ready_df_tcf1) + 2):
+                        for col_idx in range(1, len(ready_df_tcf1.columns) + 1):
+                            cell = ws.cell(row=r_idx, column=col_idx)
                             cell.border = thin_b
                             cell.alignment = Alignment(horizontal='center', vertical='center')
                             cell.font = Font(name='Calibri', size=10)
@@ -2661,12 +2662,35 @@ with tcf_tabs[2]:
                         max_len = max(len(str(cell.value or '')) for cell in col)
                         ws.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 12)
                         
-                    # Sheet 2: ready to upload (Pivot of Short VC and count)
-                    ready_full_1 = filtered_df[filtered_df['STATUS'] == '✅ Ready for TCF'].copy()
+                    # Sheet 2: ready to upload (Pivot of Short VC and count calculated against Total Float)
+                    if 'tcf1_total_alloc_df' in locals() and tcf1_total_alloc_df is not None and not tcf1_total_alloc_df.empty:
+                        ready_full_1 = tcf1_total_alloc_df.copy()
+                    else:
+                        ready_full_1 = filtered_df.copy()
+
+                    if 'tcf1_manual_overrides' in st.session_state and st.session_state.tcf1_manual_overrides:
+                        for biw_key, override in st.session_state.tcf1_manual_overrides.items():
+                            mask = ready_full_1['BIW NUMBER'].astype(str) == str(biw_key)
+                            if mask.any():
+                                ready_full_1.loc[mask, 'STATUS'] = override['status']
+
+                    ready_full_1 = ready_full_1[ready_full_1['STATUS'] == '✅ Ready for TCF'].copy()
                     vc_s1 = ready_full_1['VEHICLE CODE'] if 'VEHICLE CODE' in ready_full_1.columns else (ready_full_1['VC'] if 'VC' in ready_full_1.columns else pd.Series('', index=ready_full_1.index))
                     ready_full_1['Short VC'] = vc_s1.astype(str).str.strip().str[:9]
-                    pivot_df_1 = ready_full_1.groupby('Short VC').size().reset_index(name='Count')
-                    tot_row_1 = pd.DataFrame([{'Short VC': 'Total', 'Count': pivot_df_1['Count'].sum()}])
+                    pivot_df_1 = ready_full_1.groupby('Short VC').size().reset_index(name='Ready_Count')
+
+                    # Deduct DPT Pending VINs (Plan minus VIN) if DPT Plan is available
+                    dpt_vgl_1 = tcf1_drops if ('tcf1_drops' in locals() and tcf1_drops is not None and not tcf1_drops.empty) else st.session_state.get('tcf1_drops')
+                    dpt_pending_1 = dl.get_dpt_pending_by_vc(dpt_vgl_1, 'TCF1') if dpt_vgl_1 is not None else {}
+                    if dpt_pending_1:
+                        pivot_df_1['Pending_VIN'] = pivot_df_1['Short VC'].map(dpt_pending_1).fillna(0).astype(int)
+                        pivot_df_1['Count'] = (pivot_df_1['Ready_Count'] - pivot_df_1['Pending_VIN']).clip(lower=0)
+                        pivot_df_1 = pivot_df_1[pivot_df_1['Count'] > 0][['Short VC', 'Count']].copy()
+                    else:
+                        pivot_df_1.rename(columns={'Ready_Count': 'Count'}, inplace=True)
+                        pivot_df_1 = pivot_df_1[['Short VC', 'Count']].copy()
+
+                    tot_row_1 = pd.DataFrame([{'Short VC': 'Total', 'Count': pivot_df_1['Count'].sum() if not pivot_df_1.empty else 0}])
                     pivot_full_1 = pd.concat([pivot_df_1, tot_row_1], ignore_index=True)
                     
                     pivot_full_1.to_excel(writer, index=False, sheet_name='ready to upload')
@@ -2855,7 +2879,8 @@ with tcf_tabs[3]:
             
             # Ready to TCF Excel
             ready_df_tcf2 = filtered_df_tcf2[filtered_df_tcf2['STATUS'] == '✅ Ready for TCF'][display_cols].copy()
-            if not ready_df_tcf2.empty:
+            has_ready_tcf2_tot = ('tcf2_total_alloc_df' in locals() and tcf2_total_alloc_df is not None and not tcf2_total_alloc_df.empty and (tcf2_total_alloc_df['STATUS'] == '✅ Ready for TCF').any())
+            if not ready_df_tcf2.empty or has_ready_tcf2_tot:
                 buf_ready2 = io.BytesIO()
                 with pd.ExcelWriter(buf_ready2, engine='openpyxl') as writer:
                     ready_df_tcf2.to_excel(writer, index=False, sheet_name='Ready to TCF2')
@@ -2863,15 +2888,15 @@ with tcf_tabs[3]:
                     hdr_fill = PatternFill(start_color='D8F3E5', end_color='D8F3E5', fill_type='solid')
                     hdr_font = Font(name='Calibri', size=11, bold=True, color='1B4D32')
                     thin_b = Border(left=Side(style='thin', color='BFBFBF'), right=Side(style='thin', color='BFBFBF'), top=Side(style='thin', color='BFBFBF'), bottom=Side(style='thin', color='BFBFBF'))
-                    for c in range(1, len(ready_df_tcf2.columns) + 1):
-                        cell = ws.cell(row=1, column=c)
+                    for col_idx in range(1, len(ready_df_tcf2.columns) + 1):
+                        cell = ws.cell(row=1, column=col_idx)
                         cell.font = hdr_font
                         cell.fill = hdr_fill
                         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
                         cell.border = thin_b
-                    for r in range(2, len(ready_df_tcf2) + 2):
-                        for c in range(1, len(ready_df_tcf2.columns) + 1):
-                            cell = ws.cell(row=r, column=c)
+                    for r_idx in range(2, len(ready_df_tcf2) + 2):
+                        for col_idx in range(1, len(ready_df_tcf2.columns) + 1):
+                            cell = ws.cell(row=r_idx, column=col_idx)
                             cell.border = thin_b
                             cell.alignment = Alignment(horizontal='center', vertical='center')
                             cell.font = Font(name='Calibri', size=10)
@@ -2879,12 +2904,35 @@ with tcf_tabs[3]:
                         max_len = max(len(str(cell.value or '')) for cell in col)
                         ws.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 12)
                         
-                    # Sheet 2: ready to upload (Pivot of Short VC and count)
-                    ready_full_2 = filtered_df_tcf2[filtered_df_tcf2['STATUS'] == '✅ Ready for TCF'].copy()
+                    # Sheet 2: ready to upload (Pivot of Short VC and count calculated against Total Float)
+                    if 'tcf2_total_alloc_df' in locals() and tcf2_total_alloc_df is not None and not tcf2_total_alloc_df.empty:
+                        ready_full_2 = tcf2_total_alloc_df.copy()
+                    else:
+                        ready_full_2 = filtered_df_tcf2.copy()
+
+                    if 'tcf2_manual_overrides' in st.session_state and st.session_state.tcf2_manual_overrides:
+                        for biw_key, override in st.session_state.tcf2_manual_overrides.items():
+                            mask = ready_full_2['BIW NUMBER'].astype(str) == str(biw_key)
+                            if mask.any():
+                                ready_full_2.loc[mask, 'STATUS'] = override['status']
+
+                    ready_full_2 = ready_full_2[ready_full_2['STATUS'] == '✅ Ready for TCF'].copy()
                     vc_s2 = ready_full_2['VEHICLE CODE'] if 'VEHICLE CODE' in ready_full_2.columns else (ready_full_2['VC'] if 'VC' in ready_full_2.columns else pd.Series('', index=ready_full_2.index))
                     ready_full_2['Short VC'] = vc_s2.astype(str).str.strip().str[:9]
-                    pivot_df_2 = ready_full_2.groupby('Short VC').size().reset_index(name='Count')
-                    tot_row_2 = pd.DataFrame([{'Short VC': 'Total', 'Count': pivot_df_2['Count'].sum()}])
+                    pivot_df_2 = ready_full_2.groupby('Short VC').size().reset_index(name='Ready_Count')
+
+                    # Deduct DPT Pending VINs (Plan minus VIN) if DPT Plan is available
+                    dpt_vgl_2 = tcf2_drops if ('tcf2_drops' in locals() and tcf2_drops is not None and not tcf2_drops.empty) else st.session_state.get('tcf2_drops')
+                    dpt_pending_2 = dl.get_dpt_pending_by_vc(dpt_vgl_2, 'TCF2') if dpt_vgl_2 is not None else {}
+                    if dpt_pending_2:
+                        pivot_df_2['Pending_VIN'] = pivot_df_2['Short VC'].map(dpt_pending_2).fillna(0).astype(int)
+                        pivot_df_2['Count'] = (pivot_df_2['Ready_Count'] - pivot_df_2['Pending_VIN']).clip(lower=0)
+                        pivot_df_2 = pivot_df_2[pivot_df_2['Count'] > 0][['Short VC', 'Count']].copy()
+                    else:
+                        pivot_df_2.rename(columns={'Ready_Count': 'Count'}, inplace=True)
+                        pivot_df_2 = pivot_df_2[['Short VC', 'Count']].copy()
+
+                    tot_row_2 = pd.DataFrame([{'Short VC': 'Total', 'Count': pivot_df_2['Count'].sum() if not pivot_df_2.empty else 0}])
                     pivot_full_2 = pd.concat([pivot_df_2, tot_row_2], ignore_index=True)
                     
                     pivot_full_2.to_excel(writer, index=False, sheet_name='ready to upload')

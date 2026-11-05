@@ -619,6 +619,58 @@ def load_vgl(filepath_or_buffer):
     
     return df
 
+def get_dpt_pending_by_vc(vgl_df, shop='TCF1'):
+    """
+    Computes pending VIN generation demand per 9-digit Short VC from DPT Plan report.
+    Pending VIN = max(0, Plan_Qty - VIN_Qty).
+    Returns dict mapping Short VC -> pending_qty.
+    """
+    if vgl_df is None or not isinstance(vgl_df, pd.DataFrame) or vgl_df.empty:
+        return {}
+    df = vgl_df.copy()
+    vc_col = next((col for col in ['VEHICLE CODE', 'VC', 'SHORT VEHICLE CODE', 'VEHICLE_CODE'] if col in df.columns), None)
+    if not vc_col:
+        return {}
+    df['Short VC'] = df[vc_col].astype(str).str.strip().str[:9]
+    df = df[~df['Short VC'].str.upper().isin(['TOTAL', 'GRAND TOT', 'NAN', '', 'NONE'])]
+    
+    # Identify Plan column
+    plan_col = None
+    pref_plans = [f'{shop}-Plan', 'TCF/-Plan', 'TCF-Plan', 'Plan_Count', 'PLAN', 'DPT_PLAN', 'TCF1-Plan', 'TCF2-Plan']
+    for p in pref_plans:
+        if p in df.columns:
+            plan_col = p
+            break
+    if not plan_col:
+        for col in df.columns:
+            c_u = str(col).upper()
+            if 'PLAN' in c_u and 'DESC' not in c_u:
+                plan_col = col
+                break
+                
+    # Identify VIN column
+    vin_col = None
+    pref_vins = [f'{shop}-VIN', 'TCF/-VIN', 'TCF-VIN', 'VIN_Count', 'VIN', 'TODAY VIN', 'TCF1-VIN', 'TCF2-VIN', 'TOTAL']
+    for v in pref_vins:
+        if v in df.columns:
+            vin_col = v
+            break
+    if not vin_col:
+        for col in df.columns:
+            c_u = str(col).upper()
+            if 'VIN' in c_u and 'DESC' not in c_u and 'CODE' not in c_u:
+                vin_col = col
+                break
+                
+    if not plan_col:
+        return {}
+        
+    df['p_plan'] = pd.to_numeric(df[plan_col], errors='coerce').fillna(0)
+    df['p_vin'] = pd.to_numeric(df[vin_col], errors='coerce').fillna(0) if vin_col else 0
+    df['p_pending'] = (df['p_plan'] - df['p_vin']).clip(lower=0)
+    
+    return df.groupby('Short VC')['p_pending'].sum().astype(int).to_dict()
+
 _STOCK_SHEET_DIAGNOSTICS = {}
 
 def clear_sheet_diagnostics():
