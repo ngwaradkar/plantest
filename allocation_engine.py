@@ -61,6 +61,110 @@ def calculate_true_stock(shift_start_stock, tcf_drops, bom, bom_part_col, bom_lo
             
     return true_stock, consumed, warnings
 
+def get_cab_trims(model, sales_desc):
+    """
+    Extracts discrete trim name(s) and features from a vehicle sales description,
+    preventing substring collisions (e.g. 'PURE' matching 'PURE +' or 'PURE + S').
+    """
+    d = str(sales_desc).upper().strip()
+    m = str(model).upper().strip()
+    trims = set()
+    
+    if 'PUNCH.EV' in m or 'NOVA' in m:
+        if 'EMP+ S' in d or 'EMP+' in d or 'EMP + S' in d:
+            trims.add('EMP+ S')
+        elif 'EMP' in d:
+            trims.add('EMP')
+        if 'SMT+' in d or 'SMT +' in d:
+            trims.add('SMT+')
+        elif 'SMT' in d:
+            trims.add('SMT')
+        if 'ADV' in d:
+            trims.add('ADV')
+    elif 'PUNCH' in m or 'HORNBILL' in m:
+        if 'PURE + S' in d or 'PURE+S' in d or 'PURE +S' in d:
+            trims.add('PURE + S')
+        elif 'PURE +' in d or 'PURE+' in d:
+            trims.add('PURE +')
+        elif 'PURE' in d:
+            trims.add('PURE')
+            
+        if 'ADVT S' in d or 'ADVT + S' in d or 'ADVT+S' in d:
+            trims.add('ADVT S')
+        elif 'ADVT' in d or 'ADV' in d:
+            trims.add('ADVT')
+            
+        if 'ACCOMP + S' in d or 'ACCOMP+S' in d or 'ACCOMP +S' in d:
+            trims.add('ACCOMP + S')
+        elif 'ACCOMP' in d or 'ACC' in d:
+            trims.add('ACCOMP')
+            
+        if 'SMART' in d:
+            trims.add('SMART')
+        if 'CREATIVE' in d or 'LUX' in d:
+            trims.add('CREATIVE / LUX')
+            trims.add('CREATIVE')
+        if 'CNG' in d:
+            trims.add('CNG')
+        if 'TGDI' in d:
+            trims.add('TGDI')
+    elif 'HARRIER.EV' in m or 'ETURNA' in m:
+        if 'FEA+' in d or 'FEA +' in d:
+            trims.add('FEA+')
+        elif 'FEA' in d:
+            trims.add('FEA')
+        if 'EMP' in d:
+            trims.add('EMP')
+        if 'ADV' in d:
+            trims.add('ADV')
+    else:  # HARRIER / SAFARI
+        if 'FRLR' in d:
+            trims.add('FRLR')
+        elif 'FRL' in d:
+            trims.add('FRL')
+        if 'ACCOMP' in d or 'ACC' in d:
+            trims.add('ACC')
+        if 'ADVT' in d or 'ADV' in d:
+            trims.add('ADV')
+        if 'PURE' in d or 'PUR' in d:
+            trims.add('PUR')
+        if 'SMART' in d or 'SMT' in d:
+            trims.add('SMT')
+        if 'TGDI' in d:
+            trims.add('TGDI')
+        if 'CNG' in d:
+            trims.add('CNG')
+            
+    return trims
+
+def is_trim_matched(model, sales_desc, target_trims):
+    """
+    Determines if sales_desc matches any of the target trims for the given model.
+    Handles 'All Trims' or empty target as a match for any cab.
+    """
+    if not target_trims:
+        return True
+    t_str = str(target_trims).strip().upper()
+    if not t_str or 'ALL TRIMS' in t_str or t_str == 'ALL':
+        return True
+        
+    targets = [t.strip().upper() for t in t_str.split(',') if t.strip()]
+    cab_trims = get_cab_trims(model, sales_desc)
+    
+    # 1. Check exact discrete trim match
+    for t in targets:
+        if t in cab_trims:
+            return True
+            
+    # 2. Fallback substring matching for custom-entered trim strings
+    c_desc_upper = str(sales_desc).strip().upper()
+    for t in targets:
+        if t not in ['PURE', 'ADVT', 'ACCOMP', 'SMT', 'EMP', 'FEA', 'FRL']:
+            if t in c_desc_upper:
+                return True
+                
+    return False
+
 def _is_model_trim_matched(cab_model, cab_sales_desc, target_model, target_trims):
     t_mod = str(target_model).strip().upper()
     c_mod = str(cab_model).strip().upper() if cab_model else ''
@@ -77,7 +181,7 @@ def _is_model_trim_matched(cab_model, cab_sales_desc, target_model, target_trims
         if any(k in c_mod or k in c_desc for k in ['PUNCH.EV', 'NOVA']):
             model_match = True
     elif t_mod == 'PUNCH':
-        if any(k in c_mod or k in c_desc for k in ['PUNCH', 'HORNBILL']) and 'EV' not in c_mod and 'NOVA' not in c_mod and 'PUNCH.EV' not in c_desc:
+        if any(k in c_mod or k in c_desc for k in ['PUNCH', 'HORNBILL']) and 'EV' not in c_mod and 'NOVA' not in c_mod and 'PUNCH.EV' not in c_desc and 'PUNCH EV' not in c_desc:
             model_match = True
     else:
         if t_mod in c_mod or t_mod in c_desc:
@@ -86,16 +190,7 @@ def _is_model_trim_matched(cab_model, cab_sales_desc, target_model, target_trims
     if not model_match:
         return False
 
-    t_trims = str(target_trims).strip().upper()
-    if not t_trims or 'ALL TRIMS' in t_trims:
-        return True
-
-    trims_list = [t.strip() for t in t_trims.split(',') if t.strip()]
-    for t_val in trims_list:
-        if t_val in c_desc:
-            return True
-
-    return False
+    return is_trim_matched(t_mod, c_desc, target_trims)
 
 
 def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_nova=None, model_shortages=None, bom_lookup=None):

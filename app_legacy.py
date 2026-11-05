@@ -875,7 +875,7 @@ if 'telegram_auto_send_15m' not in st.session_state:
 # Auto reset at 6:30 AM is completely disabled. Data reset is only performed when manually triggered by planner via Control Center.
 
 def get_demand_qty_for_model_trims(model_name, trims_str, tcf1_drops, tcf2_drops):
-    """Calculates demand (VIN generation / DPT plan) for a given model and trim filter."""
+    """Calculates demand (DPT plan / VIN generation) for a given model and trim filter."""
     vgl_df = None
     if model_name in ['PUNCH', 'PUNCH.EV', 'ALTROZ']:
         vgl_df = tcf1_drops
@@ -906,21 +906,20 @@ def get_demand_qty_for_model_trims(model_name, trims_str, tcf1_drops, tcf2_drops
             sub = sub[sub[model_col].astype(str).str.upper().str.contains(m_str, na=False)]
 
     if trims_str and "All Trims" not in str(trims_str) and not sub.empty:
-        trims_list = [t.strip().upper() for t in str(trims_str).split(',') if t.strip()]
         desc_col = 'SALES DESC' if 'SALES DESC' in sub.columns else ('SALES DESCRIPTION' if 'SALES DESCRIPTION' in sub.columns else ('MODEL' if 'MODEL' in sub.columns else None))
-        if desc_col and trims_list:
-            patterns = [re.escape(t) for t in trims_list]
-            regex_pat = '|'.join(patterns)
-            sub = sub[sub[desc_col].astype(str).str.upper().str.contains(regex_pat, na=False)]
+        if desc_col:
+            sub = sub[sub[desc_col].apply(lambda d: ae.is_trim_matched(model_name, d, trims_str))]
 
-    if 'VIN_Count' in sub.columns and pd.to_numeric(sub['VIN_Count'], errors='coerce').fillna(0).sum() > 0:
-        return int(pd.to_numeric(sub['VIN_Count'], errors='coerce').fillna(0).sum())
-    
-    for col in ['TCF/-VIN', 'TCF2-VIN', 'TOTAL']:
+    # Prioritize DPT Plan columns
+    for col in ['TCF1-Plan', 'TCF2-Plan', 'TCF/-Plan', 'Plan_Count', 'PLAN']:
         if col in sub.columns and pd.to_numeric(sub[col], errors='coerce').fillna(0).sum() > 0:
             return int(pd.to_numeric(sub[col], errors='coerce').fillna(0).sum())
 
-    for col in ['TCF/-Plan', 'TCF2-Plan', 'Plan_Count']:
+    # Fallback to actual VIN generated count if plan column is not present
+    if 'VIN_Count' in sub.columns and pd.to_numeric(sub['VIN_Count'], errors='coerce').fillna(0).sum() > 0:
+        return int(pd.to_numeric(sub['VIN_Count'], errors='coerce').fillna(0).sum())
+    
+    for col in ['TCF1-VIN', 'TCF2-VIN', 'TCF/-VIN', 'TOTAL']:
         if col in sub.columns and pd.to_numeric(sub[col], errors='coerce').fillna(0).sum() > 0:
             return int(pd.to_numeric(sub[col], errors='coerce').fillna(0).sum())
 
@@ -958,14 +957,11 @@ def get_backflushed_vin_count_for_model_trims(model_name, trims_str, tcf1_drops,
             sub = sub[sub[model_col].astype(str).str.upper().str.contains(m_str, na=False)]
 
     if trims_str and "All Trims" not in str(trims_str) and not sub.empty:
-        trims_list = [t.strip().upper() for t in str(trims_str).split(',') if t.strip()]
         desc_col = 'SALES DESC' if 'SALES DESC' in sub.columns else ('SALES DESCRIPTION' if 'SALES DESCRIPTION' in sub.columns else ('MODEL' if 'MODEL' in sub.columns else None))
-        if desc_col and trims_list:
-            patterns = [re.escape(t) for t in trims_list]
-            regex_pat = '|'.join(patterns)
-            sub = sub[sub[desc_col].astype(str).str.upper().str.contains(regex_pat, na=False)]
+        if desc_col:
+            sub = sub[sub[desc_col].apply(lambda d: ae.is_trim_matched(model_name, d, trims_str))]
 
-    for col in ['VIN_Count', 'TCF/-VIN', 'TCF2-VIN', 'TOTAL']:
+    for col in ['VIN_Count', 'TCF1-VIN', 'TCF2-VIN', 'TCF/-VIN', 'TOTAL']:
         if col in sub.columns and pd.to_numeric(sub[col], errors='coerce').fillna(0).sum() > 0:
             return int(pd.to_numeric(sub[col], errors='coerce').fillna(0).sum())
 
@@ -1339,22 +1335,18 @@ with config_expander:
             
             # Trim Options Mapping per Model
             trim_options_map = {
+                "PUNCH": ["SMART", "PURE", "PURE +", "PURE + S", "ADVT", "ADVT S", "ACCOMP", "ACCOMP + S", "CREATIVE", "CREATIVE + S", "CNG", "TGDI"],
+                "PUNCH.EV": ["SMT", "SMT+", "ADV", "EMP", "EMP+ S"],
                 "HARRIER / SAFARI": ["ACC", "ADV", "PUR", "SMT", "FRL", "FRLR", "TGDI", "CNG"],
-                "HARRIER.EV": ["ADV", "EMP", "FEA", "FEA+"],
-                "PUNCH": ["SMART", "PURE", "PURE +", "PURE + S", "ADVT", "ADVT S", "ACCOMP", "ACCOMP + S", "CREATIVE / LUX", "CNG", "TGDI"],
-                "PUNCH.EV": ["SMT", "SMT+", "ADV", "EMP", "EMP+ S"]
+                "HARRIER.EV": ["ADV", "EMP", "FEA", "FEA+"]
             }
-
-            def pause_calculation_on_edit():
-                st.session_state.run_report = False
 
             col_m, col_t = st.columns([1.2, 1.8])
             with col_m:
                 selected_ms_model = st.selectbox(
                     "Select Model",
                     options=list(trim_options_map.keys()),
-                    key="ms_model_select",
-                    on_change=pause_calculation_on_edit
+                    key="ms_model_select"
                 )
             with col_t:
                 available_trims = trim_options_map.get(selected_ms_model, [])
@@ -1363,8 +1355,7 @@ with config_expander:
                     options=available_trims,
                     default=[],
                     placeholder="Select trim(s)... (leave empty for All Trims)",
-                    key=f"ms_trim_select_{selected_ms_model}",
-                    on_change=pause_calculation_on_edit
+                    key=f"ms_trim_select_{selected_ms_model}"
                 )
 
             col_p, col_q = st.columns([2.0, 1.0])
@@ -1372,8 +1363,7 @@ with config_expander:
                 input_ms_part_name = st.text_input(
                     "Part Name",
                     placeholder="Enter part name manually...",
-                    key="ms_part_input",
-                    on_change=pause_calculation_on_edit
+                    key="ms_part_input"
                 )
             with col_q:
                 input_ms_clearance_qty = st.number_input(
@@ -1381,8 +1371,7 @@ with config_expander:
                     min_value=0,
                     value=0,
                     step=1,
-                    key="ms_qty_input",
-                    on_change=pause_calculation_on_edit
+                    key="ms_qty_input"
                 )
             
             st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
@@ -1412,6 +1401,7 @@ with config_expander:
                         dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
                     except Exception:
                         pass
+                    st.session_state.run_report = True
                     st.toast(f"✅ Added {input_ms_part_name.strip()} for {selected_ms_model} [{trims_str}] (Qty: {input_ms_clearance_qty})", icon="✅")
                     st.rerun()
 
@@ -1421,17 +1411,30 @@ with config_expander:
                 st.markdown("##### Current Model-Wise Shortages")
                 
                 ms_disp_df = st.session_state.model_shortages_df.copy()
+                tcf1_tmp = st.session_state.get('tcf1_drops')
+                if tcf1_tmp is None and 'buffer_TCF1_VGL' in st.session_state and st.session_state['buffer_TCF1_VGL'] is not None:
+                    try:
+                        tcf1_tmp = dl.load_vgl(st.session_state['buffer_TCF1_VGL'])
+                    except Exception:
+                        pass
+                tcf2_tmp = st.session_state.get('tcf2_drops')
+                if tcf2_tmp is None and 'buffer_TCF2_VGL' in st.session_state and st.session_state['buffer_TCF2_VGL'] is not None:
+                    try:
+                        tcf2_tmp = dl.load_vgl(st.session_state['buffer_TCF2_VGL'])
+                    except Exception:
+                        pass
                 
                 for idx_ms, row_ms in ms_disp_df.iterrows():
                     c_qty = int(row_ms['Clearance Qty'])
-                    tcf1_tmp = locals().get('tcf1_drops', None)
-                    tcf2_tmp = locals().get('tcf2_drops', None)
                     vins_today = get_backflushed_vin_count_for_model_trims(row_ms['Model'], row_ms.get('Trims', 'All Trims'), tcf1_tmp, tcf2_tmp)
                     true_buf = max(0, c_qty - vins_today)
+                    d_qty = get_demand_qty_for_model_trims(row_ms['Model'], row_ms.get('Trims', 'All Trims'), tcf1_tmp, tcf2_tmp)
                     if true_buf <= 0:
-                        status_badge = f"<span style='background:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:6px; font-weight:700; font-size:11px;'>🚨 SHORTAGE (VIN: {vins_today})</span>"
+                        status_badge = f"<span style='background:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:6px; font-weight:700; font-size:11px;'>🚨 SHORTAGE (VIN: {vins_today}/{d_qty})</span>"
+                    elif c_qty < d_qty:
+                        status_badge = f"<span style='background:#FEF3C7; color:#B45309; padding:2px 6px; border-radius:6px; font-weight:600; font-size:11px;'>⚠️ DEFICIT: {true_buf} left (VIN: {vins_today}/{d_qty})</span>"
                     else:
-                        status_badge = f"<span style='background:#DCFCE7; color:#166534; padding:2px 6px; border-radius:6px; font-weight:600; font-size:11px;'>🟢 OK: {true_buf} (VIN: {vins_today})</span>"
+                        status_badge = f"<span style='background:#DCFCE7; color:#166534; padding:2px 6px; border-radius:6px; font-weight:600; font-size:11px;'>🟢 OK: {true_buf} left (VIN: {vins_today}/{d_qty})</span>"
                     
                     ms_card_border = '#30363D' if is_dark_theme else '#E5E7EB'
                     ms_card_bg = '#1F2937' if is_dark_theme else '#F9FAFB'
@@ -1449,6 +1452,7 @@ with config_expander:
                             dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
                         except Exception:
                             pass
+                        st.session_state.run_report = True
                         st.toast("Item removed", icon="🗑️")
                         st.rerun()
 
@@ -1458,6 +1462,7 @@ with config_expander:
                         dl.save_model_shortages_to_db(st.session_state.model_shortages_df)
                     except Exception:
                         pass
+                    st.session_state.run_report = True
                     st.toast("All model shortages cleared", icon="🗑️")
                     st.rerun()
             
@@ -1646,7 +1651,9 @@ try:
         
         # 3. Load VGL drops, Shop-Wise Report & Hourly Production
         tcf1_drops = dl.load_vgl(loaded_data['TCF1_VGL']) if 'TCF1_VGL' in loaded_data else None
+        st.session_state['tcf1_drops'] = tcf1_drops
         tcf2_drops = dl.load_vgl(loaded_data['TCF2_VGL']) if 'TCF2_VGL' in loaded_data else None
+        st.session_state['tcf2_drops'] = tcf2_drops
         
         hourly_df = None
         if 'HOURLY_PRODUCTION' in loaded_data:
