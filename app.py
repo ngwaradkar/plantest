@@ -4700,6 +4700,9 @@ with tcf_tabs[0]:
             sub = vgl_df[vgl_df[col] == model_name]
             if sub.empty and 'Model' in vgl_df.columns and col != 'Model':
                 sub = vgl_df[vgl_df['Model'] == model_name]
+            if sub.empty:
+                norm_target = str(model_name).upper().replace('.', '').replace(' ', '')
+                sub = vgl_df[vgl_df[col].astype(str).str.upper().str.replace('.', '', regex=False).str.replace(' ', '', regex=False) == norm_target]
             if 'VIN_Count' in sub.columns:
                 return int(sub['VIN_Count'].sum())
             return len(sub)

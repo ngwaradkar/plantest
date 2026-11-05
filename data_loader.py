@@ -17,11 +17,27 @@ def _hash_upload_buffer(b):
     calls os.path.getmtime() on it -- which crashes, since these are in-memory
     buffers, not files that exist at that path. Hash by actual content instead.
     """
-    pos = b.tell()
-    b.seek(0)
-    data = b.read()
-    b.seek(pos)
-    return data
+    components = []
+    name = getattr(b, 'name', '')
+    if name:
+        components.append(str(name).encode('utf-8'))
+        
+    if hasattr(b, 'df') and b.df is not None:
+        try:
+            components.append(pd.util.hash_pandas_object(b.df).values.tobytes())
+        except Exception:
+            components.append(f"{b.df.shape}_{list(b.df.columns)}".encode('utf-8'))
+
+    try:
+        pos = b.tell()
+        b.seek(0)
+        data = b.read()
+        b.seek(pos)
+        components.append(data)
+    except Exception:
+        pass
+
+    return b''.join(components)
 
 # Cache TTL for parsed-file results: long enough that clicking around the
 # dashboard (Telegram send, tab switches, filters) doesn't re-parse the same
@@ -372,22 +388,13 @@ def load_vgl(filepath_or_buffer):
     Loads Vehicle Generation List / DPT Plan VIN Generation Report (.xls, .xlsx, .xlsb, HTML, DataFrame, buffer).
     Supports both old VGL format (cab-by-cab) and new DPT Plan format (VC-grouped VIN counts).
     """
+    df = None
     if isinstance(filepath_or_buffer, pd.DataFrame):
-        df_direct = filepath_or_buffer.copy()
-        df_direct.columns = [str(c).strip() for c in df_direct.columns]
-        return df_direct
+        df = filepath_or_buffer.copy()
+        df.columns = [str(c).strip() for c in df.columns]
     elif hasattr(filepath_or_buffer, 'df'):
-        df_direct = filepath_or_buffer.df.copy()
-        df_direct.columns = [str(c).strip() for c in df_direct.columns]
-        return df_direct
-
-    if not isinstance(filepath_or_buffer, str):
-        try:
-            filepath_or_buffer.seek(0)
-        except Exception:
-            pass
-
-    is_html, html_content = _detect_html_content(filepath_or_buffer)
+        df = filepath_or_buffer.df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
 
     pf_map = {
         'HORNBILL': 'PUNCH',
@@ -398,90 +405,99 @@ def load_vgl(filepath_or_buffer):
         'TAYRONA': 'SAFARI.EV'
     }
 
-    if is_html and html_content:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_content, 'html.parser')
-        rows = soup.find_all('tr')
-        if rows:
-            header = [td.get_text(strip=True) for td in rows[0].find_all(['td', 'th'])]
-            header_str = ' '.join(header).upper()
-            
-            # Check if this is new DPT Plan VIN generation format (has MARKET and ProductFamily headers)
-            if ('PRODUCTFAMILY' in header_str or 'PRODUCT FAMILY' in header_str or 'MARKET' in header_str) and 'SR NO' not in header_str:
-                parsed_rows = []
-                current_pf = ''
-                for r in rows[1:]:
-                    tds = [td.get_text(strip=True) for td in r.find_all(['td', 'th'])]
-                    if len(tds) < 4:
-                        continue
-                    market, pf, vc, sales_desc = tds[0], tds[1], tds[2], tds[3]
-                    vin_str = tds[5] if len(tds) > 5 else (tds[4] if len(tds) > 4 else '0')
-                    
-                    if pf:
-                        current_pf = pf.strip().upper()
-                        
-                    if not vc or vc.upper() in ['TOTAL', 'GRAND TOTAL'] or market.upper() in ['TOTAL', 'GRAND TOTAL']:
-                        continue
-                        
-                    try:
-                        vin_cnt = int(float(str(vin_str).strip()))
-                    except Exception:
-                        vin_cnt = 0
-                        
-                    model = pf_map.get(current_pf, 'UNKNOWN')
-                    if model == 'UNKNOWN':
-                        for k, v in pf_map.items():
-                            if k in sales_desc.upper() or k in current_pf:
-                                model = v
-                                break
-                                
-                    parsed_rows.append({
-                        'VEHICLE CODE': str(vc).strip(),
-                        'ProductFamily': current_pf,
-                        'SALES DESCRIPTION': sales_desc,
-                        'Model': model,
-                        'Model_Family': model,
-                        'VIN_Count': vin_cnt,
-                        'CREATED DATE': pd.Timestamp.now()
-                    })
-                df_res = pd.DataFrame(parsed_rows)
-                if not df_res.empty:
-                    return df_res
+    if df is None:
+        if not isinstance(filepath_or_buffer, str):
+            try:
+                filepath_or_buffer.seek(0)
+            except Exception:
+                pass
 
-    # Fallback reading via pd.read_html / pd.read_excel
-    if is_html:
-        dfs = pd.read_html(io.StringIO(html_content))
-        df = dfs[0]
-        df.columns = [str(c).strip() for c in df.iloc[0]]
-        df = df.iloc[1:].reset_index(drop=True)
-    else:
-        if isinstance(filepath_or_buffer, str):
-            ext = os.path.splitext(filepath_or_buffer.lower())[1]
-            if ext == '.xlsb':
-                df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-            else:
-                df = pd.read_excel(filepath_or_buffer)
+        is_html, html_content = _detect_html_content(filepath_or_buffer)
+
+        if is_html and html_content:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+            rows = soup.find_all('tr')
+            if rows:
+                header = [td.get_text(strip=True) for td in rows[0].find_all(['td', 'th'])]
+                header_str = ' '.join(header).upper()
+                
+                # Check if this is new DPT Plan VIN generation format (has MARKET and ProductFamily headers)
+                if ('PRODUCTFAMILY' in header_str or 'PRODUCT FAMILY' in header_str or 'MARKET' in header_str) and 'SR NO' not in header_str:
+                    parsed_rows = []
+                    current_pf = ''
+                    for r in rows[1:]:
+                        tds = [td.get_text(strip=True) for td in r.find_all(['td', 'th'])]
+                        if len(tds) < 4:
+                            continue
+                        market, pf, vc, sales_desc = tds[0], tds[1], tds[2], tds[3]
+                        vin_str = tds[5] if len(tds) > 5 else (tds[4] if len(tds) > 4 else '0')
+                        
+                        if pf:
+                            current_pf = pf.strip().upper()
+                            
+                        if not vc or vc.upper() in ['TOTAL', 'GRAND TOTAL'] or market.upper() in ['TOTAL', 'GRAND TOTAL']:
+                            continue
+                            
+                        try:
+                            vin_cnt = int(float(str(vin_str).strip()))
+                        except Exception:
+                            vin_cnt = 0
+                            
+                        model = pf_map.get(current_pf, 'UNKNOWN')
+                        if model == 'UNKNOWN':
+                            for k, v in pf_map.items():
+                                if k in sales_desc.upper() or k in current_pf:
+                                    model = v
+                                    break
+                                    
+                        parsed_rows.append({
+                            'VEHICLE CODE': str(vc).strip(),
+                            'ProductFamily': current_pf,
+                            'SALES DESCRIPTION': sales_desc,
+                            'Model': model,
+                            'Model_Family': model,
+                            'VIN_Count': vin_cnt,
+                            'CREATED DATE': pd.Timestamp.now()
+                        })
+                    df_res = pd.DataFrame(parsed_rows)
+                    if not df_res.empty:
+                        return df_res
+
+        # Fallback reading via pd.read_html / pd.read_excel
+        if is_html:
+            dfs = pd.read_html(io.StringIO(html_content))
+            df = dfs[0]
+            df.columns = [str(c).strip() for c in df.iloc[0]]
+            df = df.iloc[1:].reset_index(drop=True)
         else:
-            fname = getattr(filepath_or_buffer, 'name', '').lower()
-            if fname.endswith('.xlsb'):
-                try:
+            if isinstance(filepath_or_buffer, str):
+                ext = os.path.splitext(filepath_or_buffer.lower())[1]
+                if ext == '.xlsb':
                     df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
-                except Exception:
-                    filepath_or_buffer.seek(0)
+                else:
                     df = pd.read_excel(filepath_or_buffer)
             else:
-                try:
-                    df = pd.read_excel(filepath_or_buffer)
-                except Exception:
+                fname = getattr(filepath_or_buffer, 'name', '').lower()
+                if fname.endswith('.xlsb'):
                     try:
-                        filepath_or_buffer.seek(0)
                         df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
                     except Exception:
                         filepath_or_buffer.seek(0)
-                        dfs = pd.read_html(filepath_or_buffer)
-                        df = dfs[0]
-                        df.columns = [str(c).strip() for c in df.iloc[0]]
-                        df = df.iloc[1:].reset_index(drop=True)
+                        df = pd.read_excel(filepath_or_buffer)
+                else:
+                    try:
+                        df = pd.read_excel(filepath_or_buffer)
+                    except Exception:
+                        try:
+                            filepath_or_buffer.seek(0)
+                            df = pd.read_excel(filepath_or_buffer, engine='pyxlsb')
+                        except Exception:
+                            filepath_or_buffer.seek(0)
+                            dfs = pd.read_html(filepath_or_buffer)
+                            df = dfs[0]
+                            df.columns = [str(c).strip() for c in df.iloc[0]]
+                            df = df.iloc[1:].reset_index(drop=True)
         
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -494,7 +510,9 @@ def load_vgl(filepath_or_buffer):
         'BIW NUMBER': 'BIW NUMBER',
         'VIN NUMBER': 'VIN NUMBER',
         'CREATED DATE': 'CREATED DATE',
-        'SHIFT': 'SHIFT'
+        'SHIFT': 'SHIFT',
+        'SALES_DESC': 'SALES DESCRIPTION',
+        'SALES DESC': 'SALES DESCRIPTION'
     }
     for col in list(df.columns):
         col_clean = str(col).strip()
@@ -541,7 +559,7 @@ def load_vgl(filepath_or_buffer):
     
     def map_model_family(row):
         pf = str(row.get('PRODUCT', row.get('ProductFamily', ''))).strip().upper()
-        sd = str(row.get('SALES DESCRIPTION', row.get('SALES DESC', ''))).strip().upper()
+        sd = str(row.get('SALES DESCRIPTION', row.get('SALES DESC', row.get('SALES_DESC', '')))).strip().upper()
         vc = str(row.get('VEHICLE CODE', row.get('VC', ''))).strip().upper()
         
         if 'NOVA' in pf or 'PUNCH.EV' in sd or 'PUNCH EV' in sd:
@@ -551,7 +569,7 @@ def load_vgl(filepath_or_buffer):
         elif 'ETURNA' in pf or 'HARRIER.EV' in sd or 'HARRIER EV' in sd:
             return 'HARRIER.EV'
         elif 'TAYRONA' in pf or 'SAFARI.EV' in sd or 'SAFARI EV' in sd or '54831927A' in vc:
-            return 'SAFARI EV'
+            return 'SAFARI.EV'
         elif 'GRAVITAS' in pf or 'SAFARI' in sd:
             return 'SAFARI'
         elif 'Q5' in pf or 'HARRIER' in sd:
