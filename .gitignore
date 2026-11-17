@@ -42,3 +42,6 @@ android_app/
 fix*.py
 update_callers.py
 test_gateway.py
+brag-output/
+skills-lock.json
+

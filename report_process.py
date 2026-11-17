@@ -589,6 +589,144 @@ def process_aging_from_df(
     return process_aging(df_input, "dashboard_float.xlsx", analysis_date, holidays)
 
 
+def process_hold_cabs(
+    file_input: bytes | pd.DataFrame,
+    filename: str = "float_report.xlsb",
+    analysis_date: datetime.date | None = None,
+    holidays: List[datetime.date] | None = None,
+) -> tuple:
+    """
+    Extract Hold Cabs report and build Excel directly from PPC Float Report.
+    Returns (df_hold_cabs, hold_excel_bytes).
+    """
+    holiday_dates: Set[datetime.date] = set()
+    if holidays:
+        for h in holidays:
+            if isinstance(h, datetime.datetime):
+                holiday_dates.add(h.date())
+            elif isinstance(h, datetime.date):
+                holiday_dates.add(h)
+
+    if analysis_date is None:
+        analysis_date = get_default_analysis_date(file_input, filename) or datetime.date.today()
+
+    if isinstance(file_input, pd.DataFrame):
+        df = file_input.copy()
+    else:
+        df = read_float_report(file_input, filename)
+
+    # Normalise column names: strip all whitespace
+    df.columns = [str(c).strip() for c in df.columns]
+
+    def normalize_str(s: str) -> str:
+        return s.replace(" ", "").replace("_", "").replace("-", "").upper()
+
+    col_normalized = {normalize_str(c): c for c in df.columns}
+
+    def _col(name: str, optional: bool = False) -> str | None:
+        if name in df.columns:
+            return name
+        norm_name = normalize_str(name)
+        if norm_name in col_normalized:
+            return col_normalized[norm_name]
+        
+        aliases = {
+            "COLOUR": ["COLOR", "PAINTCOLOUR", "PAINTCOLOR", "COLOURDESC", "COLORDESC"],
+            "VEHICLECODE": ["VC", "SHORTVEHICLECODE", "VEHICLE_CODE"],
+            "SALESDESCRIPTION": ["SALESDESC", "DESCRIPTION", "VARIANT", "MODELDESCRIPTION"],
+            "REASONSS": ["REASONS", "REASON", "HOLDREASON", "HOLDREASONS"],
+            "HOLDBY": ["HOLD_BY", "HOLD", "HELD_BY", "HOLDBYAGENCY"],
+            "SHOP": ["LINE", "SHOPLINE"],
+        }
+        for alias in aliases.get(norm_name, []):
+            if alias in col_normalized:
+                return col_normalized[alias]
+
+        if optional:
+            return None
+        return None
+
+    ptced_col   = _col("PTCED", optional=True)
+    pbs_col     = _col("PBS LIFT", optional=True)
+    prod_col    = _col("PRODUCT", optional=True)
+    biw_num_col = _col("BIW NUMBER", optional=True)
+    vin_col     = _col("VIN", optional=True)
+    vcode_col   = _col("VEHICLE CODE", optional=True)
+    desc_col    = _col("SALES DESCRIPTION", optional=True)
+    colour_col  = _col("COLOUR", optional=True)
+    hold_col    = _col("HOLD BY", optional=True)
+    reasons_col = _col("REASONS S", optional=True)
+    shop_col    = _col("SHOP", optional=True)
+
+    empty_df = pd.DataFrame(columns=[
+        "SR NO", "VIN", "BIW NUMBER", "VEHICLE CODE", "PRODUCT", "COLOUR", 
+        "PTCED", "PBS LIFT", "Days", "HOLD BY", "Reason", "Location", "Agency"
+    ])
+
+    if not biw_num_col or not prod_col or not hold_col:
+        return empty_df, _build_hold_excel(empty_df)
+
+    if vin_col is None:
+        df["VIN"] = ""
+        vin_col = "VIN"
+    if vcode_col is None:
+        df["VEHICLE CODE"] = ""
+        vcode_col = "VEHICLE CODE"
+    if desc_col is None:
+        df["SALES DESCRIPTION"] = ""
+        desc_col = "SALES DESCRIPTION"
+    if colour_col is None:
+        df["COLOUR"] = ""
+        colour_col = "COLOUR"
+    if shop_col is None:
+        df["SHOP"] = ""
+        shop_col = "SHOP"
+
+    # Detect dominant months for timestamp healing
+    date_cols = [c for c in [ptced_col, pbs_col] if c and c in df.columns]
+    dom_months = _detect_dominant_months(df, date_cols)
+
+    if ptced_col and ptced_col in df.columns:
+        df["PTCED_DT"] = df[ptced_col].apply(lambda x: _parse_and_heal_dt(x, dom_months))
+        df[ptced_col] = df["PTCED_DT"].apply(lambda x: x.strftime("%d/%m/%Y %I:%M:%S %p") if x and pd.notna(x) else "")
+    else:
+        df["PTCED_DT"] = pd.NaT
+        df["PTCED"] = ""
+        ptced_col = "PTCED"
+
+    if pbs_col and pbs_col in df.columns:
+        df["PBS_DT"] = df[pbs_col].apply(lambda x: _parse_and_heal_dt(x, dom_months))
+        df[pbs_col] = df["PBS_DT"].apply(lambda x: x.strftime("%d/%m/%Y %I:%M:%S %p") if x and pd.notna(x) else "")
+    else:
+        df["PBS_DT"] = pd.NaT
+        df["PBS LIFT"] = ""
+        pbs_col = "PBS LIFT"
+
+    # Apply product mapping
+    mapped_prod = df[prod_col].astype(str).str.strip().str.upper().map(PRODUCT_MAP)
+    df["MODEL_NAME"] = mapped_prod.fillna(df[prod_col].astype(str).str.strip())
+    df_valid = df[df["MODEL_NAME"].notna()].copy()
+
+    df_hold_cabs = get_hold_cabs_report(
+        df_valid, biw_num_col, vin_col, vcode_col, prod_col, desc_col,
+        hold_col, reasons_col, pbs_col, colour_col, ptced_col, analysis_date, holiday_dates
+    )
+    hold_excel_bytes = _build_hold_excel(df_hold_cabs)
+    return df_hold_cabs, hold_excel_bytes
+
+
+def process_hold_cabs_from_df(
+    df_input: pd.DataFrame,
+    analysis_date: datetime.date | None = None,
+    holidays: List[datetime.date] | None = None,
+) -> tuple:
+    """
+    Generate Hold Cabs report directly from an already-loaded DataFrame.
+    Returns (df_hold_cabs, hold_excel_bytes).
+    """
+    return process_hold_cabs(df_input, "dashboard_float.xlsx", analysis_date, holidays)
+
+
 # ─────────────────────────────────────────────
 #  Summary pivot helper
 # ─────────────────────────────────────────────
@@ -1067,7 +1205,7 @@ def get_hold_cabs_report(df_valid, biw_num_col, vin_col, vcode_col, prod_col, de
             return "Paint shop"
         elif s_val == "dss293693":
             return "Punch BIW"
-        elif s_val == "q1":
+        elif s_val in ("q1", "ssd820517"):
             return "NOVA BIW"
         return str(val).strip()
 
@@ -1118,23 +1256,26 @@ def get_hold_cabs_report(df_valid, biw_num_col, vin_col, vcode_col, prod_col, de
 def _build_hold_excel(df_hold: pd.DataFrame) -> bytes:
     wb = Workbook()
     
-    # 1. Summary sheet
-    ws_sum = wb.active
-    ws_sum.title = "Summary"
-    _fill_hold_summary(ws_sum, df_hold)
-    
-    # 2. Paint shop Cabs sheet
-    ws_paint = wb.create_sheet("Paint shop Cabs")
+    # 1. Paint shop Cabs sheet
+    ws_paint = wb.active
+    ws_paint.title = "Paint shop Cabs"
     df_paint = df_hold[df_hold["Agency"] == "Paint shop"].copy()
     df_paint["SR NO"] = range(1, len(df_paint) + 1)
     _fill_hold_cab_detail(ws_paint, df_paint)
     
-    # 3. BIW Cabs sheet
+    # 2. BIW Cabs sheet
     ws_biw = wb.create_sheet("BIW Cabs")
     df_biw_cabs = df_hold[df_hold["Agency"].isin(["Punch BIW", "NOVA BIW"])].copy()
     df_biw_cabs["SR NO"] = range(1, len(df_biw_cabs) + 1)
     _fill_hold_cab_detail(ws_biw, df_biw_cabs)
     
+    # 3. Other Cabs sheet (if any hold cabs belong to other agencies)
+    df_other = df_hold[~df_hold["Agency"].isin(["Paint shop", "Punch BIW", "NOVA BIW"])].copy()
+    if not df_other.empty:
+        ws_other = wb.create_sheet("Other Cabs")
+        df_other["SR NO"] = range(1, len(df_other) + 1)
+        _fill_hold_cab_detail(ws_other, df_other)
+
     out = BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -1268,13 +1409,13 @@ def _fill_hold_summary(ws, df: pd.DataFrame):
 def _fill_hold_cab_detail(ws, df: pd.DataFrame):
     s = _styles()
 
-    col_widths = [8, 20, 15, 18, 16, 14, 26, 26, 10, 16, 45, 16, 16]
+    col_widths = [8, 16, 16, 14, 16, 45, 16, 16]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     # Header row
     ws.row_dimensions[1].height = 22
-    headers = ["SR NO", "VIN", "BIW NO", "VEHICLE CODE", "PRODUCT", "COLOUR", "PTCED", "PBS LIFT", "Days", "HOLD BY", "Reason", "Location", "Agency"]
+    headers = ["SR NO", "BIW NO", "PRODUCT", "COLOUR", "HOLD BY", "Reason", "Location", "Agency"]
     for ci, h in enumerate(headers, 1):
         c = ws.cell(1, ci, h)
         c.fill = s["f_header"]
@@ -1290,14 +1431,9 @@ def _fill_hold_cab_detail(ws, df: pd.DataFrame):
 
         vals = [
             int(row.get("SR NO", ri - 1)),
-            row.get("VIN", ""),
             row.get("BIW NUMBER", ""),
-            row.get("VEHICLE CODE", ""),
             row.get("PRODUCT", ""),
             row.get("COLOUR", ""),
-            row.get("PTCED", ""),
-            row.get("PBS LIFT", ""),
-            row.get("Days", 0),
             row.get("HOLD BY", ""),
             row.get("Reason", ""),
             row.get("Location", ""),
@@ -1309,6 +1445,6 @@ def _fill_hold_cab_detail(ws, df: pd.DataFrame):
             c.value = val if val is not None else ""
             c.fill = row_fill
             c.font = s["fnt_body"]
-            c.alignment = s["left"] if ci in (2, 3, 4, 11, 13) else s["center"]
+            c.alignment = s["left"] if ci in (2, 6, 8) else s["center"]
             c.border = s["bdr"]
 
