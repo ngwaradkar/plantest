@@ -3118,9 +3118,6 @@ with tcf_tabs[5]:
             "Agency": "Agency",
         }
 
-        from report_process import render_html_hold_cabs_table
-        is_dark_curr = st.session_state.get('theme', '☀️ White Theme') == '🌙 Dark Theme'
-
         # Sub-Tab 1: All Hold Cabs Registry with interactive filters
         with sub_tab_all:
             f1_h, f2_h, f3_h, f4_h = st.columns([1.5, 1.5, 1.5, 2.5])
@@ -3148,11 +3145,9 @@ with tcf_tabs[5]:
             avail_h = [c for c in cols_map_hold if c in view_all.columns]
             view_disp_all = view_all[avail_h].rename(columns=cols_map_hold)
             st.caption(f"Showing **{len(view_disp_all)}** of **{tot_holds}** hold cabs")
-            st.markdown(render_html_hold_cabs_table(view_disp_all, is_dark=is_dark_curr), unsafe_allow_html=True)
-            with st.expander("📋 View Plain Data Table (Raw Grid)", expanded=False):
-                st.dataframe(view_disp_all, use_container_width=True, hide_index=True)
+            st.dataframe(view_disp_all, use_container_width=True, hide_index=True, height=500)
 
-        # Sub-Tab 2: Paint Shop Cabs
+        # Sub-Tab 3: Paint Shop Cabs
         with sub_tab_paint:
             df_paint_cabs = df_hold_res[df_hold_res["Agency"] == "Paint shop"].copy()
             if df_paint_cabs.empty:
@@ -3161,11 +3156,9 @@ with tcf_tabs[5]:
                 st.caption(f"Showing **{len(df_paint_cabs)}** Paint Shop hold cabs")
                 avail_p = [c for c in cols_map_hold if c in df_paint_cabs.columns]
                 view_disp_paint = df_paint_cabs[avail_p].rename(columns=cols_map_hold)
-                st.markdown(render_html_hold_cabs_table(view_disp_paint, is_dark=is_dark_curr), unsafe_allow_html=True)
-                with st.expander("📋 View Plain Data Table (Raw Grid)", expanded=False):
-                    st.dataframe(view_disp_paint, use_container_width=True, hide_index=True)
+                st.dataframe(view_disp_paint, use_container_width=True, hide_index=True, height=500)
 
-        # Sub-Tab 3: BIW Cabs
+        # Sub-Tab 4: BIW Cabs
         with sub_tab_biw:
             df_biw_cabs = df_hold_res[df_hold_res["Agency"].isin(["Punch BIW", "NOVA BIW"])].copy()
             if df_biw_cabs.empty:
@@ -3174,9 +3167,7 @@ with tcf_tabs[5]:
                 st.caption(f"Showing **{len(df_biw_cabs)}** BIW hold cabs")
                 avail_b = [c for c in cols_map_hold if c in df_biw_cabs.columns]
                 view_disp_biw = df_biw_cabs[avail_b].rename(columns=cols_map_hold)
-                st.markdown(render_html_hold_cabs_table(view_disp_biw, is_dark=is_dark_curr), unsafe_allow_html=True)
-                with st.expander("📋 View Plain Data Table (Raw Grid)", expanded=False):
-                    st.dataframe(view_disp_biw, use_container_width=True, hide_index=True)
+                st.dataframe(view_disp_biw, use_container_width=True, hide_index=True, height=500)
 
         
 
