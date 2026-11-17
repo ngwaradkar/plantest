@@ -5,6 +5,7 @@ Reads PPC Float Report (XLSB/XLSX) and generates Paint & WBS Ageing Analysis Exc
 
 import os
 import re
+import html
 import tempfile
 import datetime
 from io import BytesIO
@@ -1447,4 +1448,185 @@ def _fill_hold_cab_detail(ws, df: pd.DataFrame):
             c.font = s["fnt_body"]
             c.alignment = s["left"] if ci in (2, 6, 8) else s["center"]
             c.border = s["bdr"]
+
+
+# ─────────────────────────────────────────────
+#  High-Visibility HTML Table Renderer
+# ─────────────────────────────────────────────
+def render_html_hold_cabs_table(df_disp: pd.DataFrame, is_dark: bool = False) -> str:
+    """
+    Renders an executive, high-visibility HTML table for Hold Cabs with:
+      - Sticky, high-contrast gradient header
+      - Interactive hover rows
+      - Monospace styling for BIW numbers
+      - Model-specific color badges with vehicle icons
+      - Distinct chips for Colour and Operator/Hold By
+      - Prominent high-contrast alert callouts for Defect/Reason
+      - Styled pills for Location (PBS Buffer vs Paint Shop)
+      - Distinct Department/Agency badges (Paint shop, Punch BIW, NOVA BIW)
+    """
+    if df_disp is None or df_disp.empty:
+        empty_bg = "#1E293B" if is_dark else "#F8FAFC"
+        empty_bdr = "#334155" if is_dark else "#E2E8F0"
+        empty_txt = "#94A3B8" if is_dark else "#64748B"
+        return f'<div style="padding: 32px; text-align: center; color: {empty_txt}; font-size: 14px; font-weight: 500; background: {empty_bg}; border-radius: 10px; border: 1.5px dashed {empty_bdr}; margin: 12px 0;">🎉 No hold cabs match the selected criteria.</div>'
+
+    card_bg = "#0D1117" if is_dark else "#FFFFFF"
+    card_bdr = "#30363D" if is_dark else "#CBD5E1"
+    th_bg = "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)" if is_dark else "linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 100%)"
+    th_txt = "#38BDF8" if is_dark else "#FFFFFF"
+    th_bdr = "#334155" if is_dark else "#1E40AF"
+    td_bdr = "#21262D" if is_dark else "#F1F5F9"
+    row_even = "#0D1117" if is_dark else "#FFFFFF"
+    row_odd = "#161B22" if is_dark else "#F8FAFC"
+    hover_bg = "#1F2937" if is_dark else "#EFF6FF"
+    text_color = "#F0F6FC" if is_dark else "#0F172A"
+
+    def get_prod_badge(p_val):
+        p = str(p_val).strip() if p_val is not None else ""
+        if not p or p.lower() in ("nan", "none", ""):
+            return '<span style="color: #94A3B8;">—</span>'
+        p_up = p.upper()
+        p_esc = html.escape(p)
+        if "PUNCH" in p_up or "HORNBILL" in p_up:
+            bg, fg, bdr, icon = ("#FEF3C7", "#92400E", "#FCD34D", "🥊") if not is_dark else ("#78350F44", "#FDE68A", "#B45309", "🥊")
+        elif "NOVA" in p_up or "ALTROZ" in p_up:
+            bg, fg, bdr, icon = ("#EDE9FE", "#5B21B6", "#C4B5FD", "🚗") if not is_dark else ("#4C1D9544", "#DDD6FE", "#7C3AED", "🚗")
+        elif "EV" in p_up or "ETURNA" in p_up:
+            bg, fg, bdr, icon = ("#CCFBF1", "#0F766E", "#5EEAD4", "⚡") if not is_dark else ("#134E4A44", "#5EEAD4", "#14B8A6", "⚡")
+        elif "HARRIER" in p_up or "Q5" in p_up:
+            bg, fg, bdr, icon = ("#E0F2FE", "#0369A1", "#7DD3FC", "🚙") if not is_dark else ("#0C4A6E44", "#7DD3FC", "#0284C7", "🚙")
+        elif "SAFARI" in p_up or "GRAVITAS" in p_up:
+            bg, fg, bdr, icon = ("#D1FAE5", "#065F46", "#6EE7B7", "🚙") if not is_dark else ("#064E3B44", "#6EE7B7", "#059669", "🚙")
+        else:
+            bg, fg, bdr, icon = ("#F1F5F9", "#334155", "#CBD5E1", "🚘") if not is_dark else ("#33415544", "#CBD5E1", "#475569", "🚘")
+        return f'<span style="background: {bg}; color: {fg}; border: 1.5px solid {bdr}; font-weight: 700; font-size: 11.5px; padding: 3px 10px; border-radius: 14px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">{icon} {p_esc}</span>'
+
+    def get_loc_badge(loc_val):
+        l = str(loc_val).strip() if loc_val is not None else ""
+        l_low = l.lower()
+        if "pbs" in l_low:
+            bg, fg, bdr = ("#ECFDF5", "#047857", "#6EE7B7") if not is_dark else ("#064E3B44", "#6EE7B7", "#059669")
+            return f'<span style="background: {bg}; color: {fg}; border: 1.5px solid {bdr}; font-weight: 700; font-size: 11.5px; padding: 3px 10px; border-radius: 14px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">🟢 PBS Buffer</span>'
+        else:
+            bg, fg, bdr = ("#FAF5FF", "#7E22CE", "#D8B4FE") if not is_dark else ("#581C8744", "#D8B4FE", "#9333EA")
+            return f'<span style="background: {bg}; color: {fg}; border: 1.5px solid {bdr}; font-weight: 700; font-size: 11.5px; padding: 3px 10px; border-radius: 14px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">🎨 Paint Shop</span>'
+
+    def get_ag_badge(ag_val):
+        a = str(ag_val).strip() if ag_val is not None else ""
+        if not a or a.lower() in ("nan", "none", ""):
+            return '<span style="color: #94A3B8;">—</span>'
+        a_low = a.lower()
+        a_esc = html.escape(a)
+        if "paint" in a_low:
+            bg, fg, bdr, icon = ("#FEE2E2", "#991B1B", "#FCA5A5", "🎨") if not is_dark else ("#7F1D1D44", "#FCA5A5", "#DC2626", "🎨")
+        elif "punch" in a_low:
+            bg, fg, bdr, icon = ("#FEF3C7", "#B45309", "#FCD34D", "🏭") if not is_dark else ("#78350F44", "#FCD34D", "#D97706", "🏭")
+        elif "nova" in a_low:
+            bg, fg, bdr, icon = ("#DBEAFE", "#1D4ED8", "#93C5FD", "🏭") if not is_dark else ("#1E3A8A44", "#93C5FD", "#2563EB", "🏭")
+        else:
+            bg, fg, bdr, icon = ("#F1F5F9", "#475569", "#CBD5E1", "🏢") if not is_dark else ("#33415544", "#94A3B8", "#64748B", "🏢")
+        return f'<span style="background: {bg}; color: {fg}; border: 1.5px solid {bdr}; font-weight: 700; font-size: 11.5px; padding: 3px 10px; border-radius: 14px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">{icon} {a_esc}</span>'
+
+    rows_html = ""
+    for i, (_, r) in enumerate(df_disp.iterrows()):
+        row_bg = row_odd if (i % 2 == 1) else row_even
+        sr_val = r.get("Sr No", r.get("SR NO", i + 1))
+        biw_val = r.get("BIW No", r.get("BIW NUMBER", ""))
+        prod_val = r.get("Product", r.get("PRODUCT", ""))
+        col_val = r.get("Colour", r.get("COLOUR", "—"))
+        hb_val = r.get("Hold By", r.get("HOLD BY", ""))
+        reason_val = r.get("Reason", "")
+        loc_val = r.get("Location", "")
+        ag_val = r.get("Agency", "")
+
+        biw_str = str(biw_val).strip()
+        biw_esc = html.escape(biw_str)
+        biw_bg = "#EFF6FF" if not is_dark else "#1E3A8A33"
+        biw_fg = "#1D4ED8" if not is_dark else "#93C5FD"
+        biw_bdr = "#93C5FD" if not is_dark else "#3B82F6"
+        biw_cell = f'<span style="font-family: \'JetBrains Mono\', \'Consolas\', monospace; font-size: 13px; font-weight: 800; color: {biw_fg}; background: {biw_bg}; border: 1.5px solid {biw_bdr}; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px; box-shadow: 0 1px 2px rgba(29,78,216,0.06);">{biw_esc}</span>'
+
+        c_str = str(col_val).strip() if col_val is not None else ""
+        if not c_str or c_str.lower() in ("none", "nan", "—", ""):
+            colour_cell = '<span style="color: #94A3B8; font-weight: 600;">—</span>'
+        else:
+            col_bg = "#F8FAFC" if not is_dark else "#1E293B"
+            col_fg = "#0F172A" if not is_dark else "#F8FAFC"
+            col_bdr = "#CBD5E1" if not is_dark else "#475569"
+            colour_cell = f'<span style="background: {col_bg}; color: {col_fg}; border: 1px solid {col_bdr}; font-weight: 700; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.3px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">{html.escape(c_str)}</span>'
+
+        hb_str = str(hb_val).strip() if hb_val is not None else ""
+        if not hb_str or hb_str.lower() in ("none", "nan", ""):
+            hb_cell = '<span style="color: #94A3B8; font-weight: 600;">—</span>'
+        else:
+            hb_bg = "#FFFBEB" if not is_dark else "#78350F33"
+            hb_fg = "#78350F" if not is_dark else "#FDE68A"
+            hb_bdr = "#FDE68A" if not is_dark else "#B45309"
+            hb_cell = f'<span style="font-family: \'JetBrains Mono\', \'Consolas\', monospace; font-size: 11.5px; font-weight: 700; background: {hb_bg}; color: {hb_fg}; border: 1px solid {hb_bdr}; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">👤 {html.escape(hb_str)}</span>'
+
+        reas_str = str(reason_val).strip() if reason_val is not None else ""
+        if not reas_str or reas_str.lower() in ("none", "nan", ""):
+            reason_cell = '<span style="color: #94A3B8; font-style: italic; font-size: 12px;">No defect reason logged</span>'
+        else:
+            r_bg = "#FEF2F2" if not is_dark else "rgba(239, 68, 68, 0.12)"
+            r_fg = "#991B1B" if not is_dark else "#FCA5A5"
+            r_bdr_left = "#DC2626" if not is_dark else "#EF4444"
+            r_bdr_box = "#FEE2E2" if not is_dark else "rgba(239, 68, 68, 0.25)"
+            reas_esc = html.escape(reas_str)
+            reason_cell = f'<div style="background: {r_bg}; color: {r_fg}; border-left: 4px solid {r_bdr_left}; border-top: 1px solid {r_bdr_box}; border-right: 1px solid {r_bdr_box}; border-bottom: 1px solid {r_bdr_box}; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; line-height: 1.4; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(220, 38, 38, 0.08); max-width: 100%;"><span style="font-size: 14px; flex-shrink: 0;">⚠️</span><span>{reas_esc}</span></div>'
+
+        prod_cell = get_prod_badge(prod_val)
+        loc_cell = get_loc_badge(loc_val)
+        ag_cell = get_ag_badge(ag_val)
+
+        sr_bg = "#F1F5F9" if not is_dark else "#1E293B"
+        sr_fg = "#475569" if not is_dark else "#94A3B8"
+        sr_cell = f'<span style="display: inline-block; min-width: 26px; padding: 2px 6px; border-radius: 6px; background: {sr_bg}; color: {sr_fg}; font-weight: 700; font-size: 11.5px; text-align: center;">{sr_val}</span>'
+
+        rows_html += f"""
+        <tr style="background-color: {row_bg}; border-bottom: 1px solid {td_bdr};">
+            <td style="padding: 9px 6px; text-align: center; border-bottom: 1px solid {td_bdr};">{sr_cell}</td>
+            <td style="padding: 9px 10px; text-align: left; border-bottom: 1px solid {td_bdr};">{biw_cell}</td>
+            <td style="padding: 9px 10px; text-align: center; border-bottom: 1px solid {td_bdr};">{prod_cell}</td>
+            <td style="padding: 9px 10px; text-align: center; border-bottom: 1px solid {td_bdr};">{colour_cell}</td>
+            <td style="padding: 9px 10px; text-align: center; border-bottom: 1px solid {td_bdr};">{hb_cell}</td>
+            <td style="padding: 9px 12px; text-align: left; border-bottom: 1px solid {td_bdr};">{reason_cell}</td>
+            <td style="padding: 9px 10px; text-align: center; border-bottom: 1px solid {td_bdr};">{loc_cell}</td>
+            <td style="padding: 9px 10px; text-align: center; border-bottom: 1px solid {td_bdr};">{ag_cell}</td>
+        </tr>
+        """
+
+    table_id = f"hold_tbl_{abs(hash(str(len(df_disp)) + (str(df_disp.iloc[0].values[0]) if len(df_disp)>0 else '')))}"
+
+    return f"""
+    <style>
+        #{table_id} tbody tr {{
+            transition: background-color 0.12s ease-in-out;
+        }}
+        #{table_id} tbody tr:hover td {{
+            background-color: {hover_bg} !important;
+        }}
+    </style>
+    <div style="overflow-x: auto; max-height: 600px; overflow-y: auto; border: 1.5px solid {card_bdr}; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.06), 0 8px 10px -6px rgba(0,0,0,0.04); background: {card_bg}; margin-top: 10px; margin-bottom: 18px;">
+    <table id="{table_id}" style="width: 100%; border-collapse: separate; border-spacing: 0; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; font-size: 12.5px; color: {text_color};">
+        <thead style="position: sticky; top: 0; z-index: 10;">
+            <tr style="background: {th_bg}; color: {th_txt}; font-weight: 700; font-size: 11.5px; letter-spacing: 0.5px; text-transform: uppercase;">
+                <th style="padding: 12px 6px; text-align: center; border-bottom: 2px solid {th_bdr}; width: 45px;">Sr</th>
+                <th style="padding: 12px 10px; text-align: left; border-bottom: 2px solid {th_bdr}; width: 110px;">BIW No</th>
+                <th style="padding: 12px 10px; text-align: center; border-bottom: 2px solid {th_bdr}; width: 130px;">Product</th>
+                <th style="padding: 12px 10px; text-align: center; border-bottom: 2px solid {th_bdr}; width: 95px;">Colour</th>
+                <th style="padding: 12px 10px; text-align: center; border-bottom: 2px solid {th_bdr}; width: 115px;">Hold By</th>
+                <th style="padding: 12px 14px; text-align: left; border-bottom: 2px solid {th_bdr}; min-width: 280px;">Defect / Reason</th>
+                <th style="padding: 12px 10px; text-align: center; border-bottom: 2px solid {th_bdr}; width: 125px;">Location</th>
+                <th style="padding: 12px 10px; text-align: center; border-bottom: 2px solid {th_bdr}; width: 135px;">Agency</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+        </tbody>
+    </table>
+    </div>
+    """
+
 
