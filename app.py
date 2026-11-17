@@ -3148,7 +3148,11 @@ with tcf_tabs[5]:
             avail_h = [c for c in cols_map_hold if c in view_all.columns]
             view_disp_all = view_all[avail_h].rename(columns=cols_map_hold)
             st.caption(f"Showing **{len(view_disp_all)}** of **{tot_holds}** hold cabs")
-            st.markdown(render_html_hold_cabs_table(view_disp_all, is_dark=is_dark_curr), unsafe_allow_html=True)
+            tbl_html_all = render_html_hold_cabs_table(view_disp_all, is_dark=is_dark_curr)
+            if hasattr(st, "html"):
+                st.html(tbl_html_all)
+            else:
+                st.markdown(tbl_html_all, unsafe_allow_html=True)
             with st.expander("📋 View Plain Data Table (Raw Grid)", expanded=False):
                 st.dataframe(view_disp_all, use_container_width=True, hide_index=True)
 
@@ -3161,7 +3165,11 @@ with tcf_tabs[5]:
                 st.caption(f"Showing **{len(df_paint_cabs)}** Paint Shop hold cabs")
                 avail_p = [c for c in cols_map_hold if c in df_paint_cabs.columns]
                 view_disp_paint = df_paint_cabs[avail_p].rename(columns=cols_map_hold)
-                st.markdown(render_html_hold_cabs_table(view_disp_paint, is_dark=is_dark_curr), unsafe_allow_html=True)
+                tbl_html_paint = render_html_hold_cabs_table(view_disp_paint, is_dark=is_dark_curr)
+                if hasattr(st, "html"):
+                    st.html(tbl_html_paint)
+                else:
+                    st.markdown(tbl_html_paint, unsafe_allow_html=True)
                 with st.expander("📋 View Plain Data Table (Raw Grid)", expanded=False):
                     st.dataframe(view_disp_paint, use_container_width=True, hide_index=True)
 
@@ -3174,7 +3182,11 @@ with tcf_tabs[5]:
                 st.caption(f"Showing **{len(df_biw_cabs)}** BIW hold cabs")
                 avail_b = [c for c in cols_map_hold if c in df_biw_cabs.columns]
                 view_disp_biw = df_biw_cabs[avail_b].rename(columns=cols_map_hold)
-                st.markdown(render_html_hold_cabs_table(view_disp_biw, is_dark=is_dark_curr), unsafe_allow_html=True)
+                tbl_html_biw = render_html_hold_cabs_table(view_disp_biw, is_dark=is_dark_curr)
+                if hasattr(st, "html"):
+                    st.html(tbl_html_biw)
+                else:
+                    st.markdown(tbl_html_biw, unsafe_allow_html=True)
                 with st.expander("📋 View Plain Data Table (Raw Grid)", expanded=False):
                     st.dataframe(view_disp_biw, use_container_width=True, hide_index=True)
 

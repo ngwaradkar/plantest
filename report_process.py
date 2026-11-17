@@ -1599,7 +1599,7 @@ def render_html_hold_cabs_table(df_disp: pd.DataFrame, is_dark: bool = False) ->
 
     table_id = f"hold_tbl_{abs(hash(str(len(df_disp)) + (str(df_disp.iloc[0].values[0]) if len(df_disp)>0 else '')))}"
 
-    return f"""
+    raw_html = f"""
     <style>
         #{table_id} tbody tr {{
             transition: background-color 0.12s ease-in-out;
@@ -1628,5 +1628,7 @@ def render_html_hold_cabs_table(df_disp: pd.DataFrame, is_dark: bool = False) ->
     </table>
     </div>
     """
+
+    return "\n".join(line.strip() for line in raw_html.splitlines() if line.strip())
 
 
