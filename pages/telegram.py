@@ -238,27 +238,27 @@ def render():
                 if open_qty < nova_vin_qty:
                     defic = nova_vin_qty - open_qty
                     icon = "🔴"
-                    tg_report_1_text += f" • {icon} SHORTAGE: {m_name_clean}: {open_qty} (VIN Demand: {nova_vin_qty}, Deficit: -{defic})\n"
+                    tg_report_1_text += f" • {icon} EXCESS VIN: {m_name_clean}: Clearance {open_qty} vs Today VIN {nova_vin_qty} (Excess: +{defic})\n"
                 elif open_qty == 0:
-                    icon = "🔴"
-                    tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
+                    icon = "⚪"
+                    tg_report_1_text += f" • {icon} {m_name_clean}: 0 (Today VIN: {nova_vin_qty})\n"
                 else:
                     icon = "🟢"
-                    tg_report_1_text += f" • {icon} {m_name_clean}: {open_qty}\n"
+                    tg_report_1_text += f" • {icon} {m_name_clean}: Clearance {open_qty} (Today VIN: {nova_vin_qty})\n"
 
         if 'model_shortages_df' in st.session_state and st.session_state.model_shortages_df is not None and not st.session_state.model_shortages_df.empty:
-            tg_report_1_text += f"\n📦 Model-Wise Material Shortage Alerts:\n"
+            tg_report_1_text += f"\n📦 Model-Wise Material Clearance & Excess Alerts:\n"
             for idx_ms, r_ms in st.session_state.model_shortages_df.iterrows():
                 ms_mod = str(r_ms['Model']).strip()
                 ms_trm = str(r_ms.get('Trims', 'All Trims')).strip()
                 ms_part = str(r_ms['Part Name']).strip()
                 ms_c_qty = int(r_ms['Clearance Qty'])
-                ms_d_qty = get_demand_qty_for_model_trims(ms_mod, ms_trm, tcf1_drops, tcf2_drops)
-                if ms_c_qty < ms_d_qty:
-                    ms_def = ms_d_qty - ms_c_qty
-                    tg_report_1_text += f" • 🔴 SHORTAGE: {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty}, Deficit: -{ms_def})\n"
+                ms_vins_today = get_backflushed_vin_count_for_model_trims(ms_mod, ms_trm, tcf1_drops, tcf2_drops)
+                if ms_vins_today > ms_c_qty:
+                    ms_exc = ms_vins_today - ms_c_qty
+                    tg_report_1_text += f" • 🔴 EXCESS: {ms_mod} [{ms_trm}] - {ms_part}: Clearance {ms_c_qty} vs Today VIN {ms_vins_today} (Excess: +{ms_exc})\n"
                 else:
-                    tg_report_1_text += f" • 🟢 {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty})\n"
+                    tg_report_1_text += f" • 🟢 {ms_mod} [{ms_trm}] - {ms_part}: Clearance {ms_c_qty} (Today VIN: {ms_vins_today})\n"
 
         # ----------------- REPORT 2: PUNCH EV (NOVA) EXECUTIVE STATUS REPORT -----------------
         now_time_r2 = format_ist_nearest_15min().replace(" ", "")  # e.g. "04.15PM"
@@ -296,24 +296,24 @@ def render():
                 else:
                     open_qty = int(r_n['Clearance Qty'])
                 
-                # Add * to lower stock qty only (stock < VIN Qty)
+                # Add alert only if Today VIN > Clearance
                 if open_qty < nova_vin_qty:
                     defic = nova_vin_qty - open_qty
-                    tg_report_2_text += f"🚨 *SHORTAGE: {m_name_clean}: {open_qty} (Demand: {nova_vin_qty}, Deficit: -{defic})*\n"
+                    tg_report_2_text += f"🚨 *EXCESS: {m_name_clean}: Clearance {open_qty} vs Today VIN {nova_vin_qty} (Excess: +{defic})*\n"
                 else:
                     tg_report_2_text += f"{m_name_clean}: {open_qty}\n"
 
         if 'model_shortages_df' in st.session_state and st.session_state.model_shortages_df is not None and not st.session_state.model_shortages_df.empty:
-            tg_report_2_text += f"\nModel Shortages:\n"
+            tg_report_2_text += f"\nModel Clearance & Excess Alerts:\n"
             for idx_ms, r_ms in st.session_state.model_shortages_df.iterrows():
                 ms_mod = str(r_ms['Model']).strip()
                 ms_trm = str(r_ms.get('Trims', 'All Trims')).strip()
                 ms_part = str(r_ms['Part Name']).strip()
                 ms_c_qty = int(r_ms['Clearance Qty'])
-                ms_d_qty = get_demand_qty_for_model_trims(ms_mod, ms_trm, tcf1_drops, tcf2_drops)
-                if ms_c_qty < ms_d_qty:
-                    ms_def = ms_d_qty - ms_c_qty
-                    tg_report_2_text += f"🚨 *SHORTAGE: {ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty} (Demand: {ms_d_qty}, Deficit: -{ms_def})*\n"
+                ms_vins_today = get_backflushed_vin_count_for_model_trims(ms_mod, ms_trm, tcf1_drops, tcf2_drops)
+                if ms_vins_today > ms_c_qty:
+                    ms_exc = ms_vins_today - ms_c_qty
+                    tg_report_2_text += f"🚨 *EXCESS: {ms_mod} [{ms_trm}] - {ms_part}: Clearance {ms_c_qty} vs Today VIN {ms_vins_today} (Excess: +{ms_exc})*\n"
                 else:
                     tg_report_2_text += f"{ms_mod} [{ms_trm}] - {ms_part}: {ms_c_qty}\n"
         # Build Report 3: TCF Dropping vs. Paint Lifting Status
