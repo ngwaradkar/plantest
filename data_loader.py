@@ -1318,8 +1318,11 @@ def load_nova_stocks_from_db():
     init_db()
     conn = sqlite3.connect(DB_PATH)
     try:
+        conn.execute("DELETE FROM nova_stocks WHERE LOWER(TRIM(Material)) = 'subframe'")
+        conn.commit()
         df = pd.read_sql("SELECT * FROM nova_stocks", conn)
         if not df.empty:
+            df = df[df['Material'].astype(str).str.strip().str.lower() != 'subframe']
             return df
         return None
     except Exception:

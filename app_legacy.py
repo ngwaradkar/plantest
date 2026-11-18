@@ -784,7 +784,6 @@ nova_default_data = [
     {"Model": "Nova", "Material": "Battery", "Clearance Qty": 0},
     {"Model": "Nova", "Material": "Combo", "Clearance Qty": 0},
     {"Model": "Nova", "Material": "Tube Frame(Craddle)", "Clearance Qty": 0},
-    {"Model": "Nova", "Material": "Subframe", "Clearance Qty": 0},
     {"Model": "Nova", "Material": "RTB", "Clearance Qty": 0}
 ]
 
@@ -829,9 +828,15 @@ if 'nova_materials_df' not in st.session_state:
     except Exception:
         pass
     if db_nova_df is not None and not db_nova_df.empty:
+        db_nova_df = db_nova_df[db_nova_df['Material'].astype(str).str.strip().str.lower() != 'subframe']
         st.session_state.nova_materials_df = db_nova_df
     else:
         st.session_state.nova_materials_df = pd.DataFrame(nova_default_data)
+else:
+    if st.session_state.nova_materials_df is not None and not st.session_state.nova_materials_df.empty:
+        st.session_state.nova_materials_df = st.session_state.nova_materials_df[
+            st.session_state.nova_materials_df['Material'].astype(str).str.strip().str.lower() != 'subframe'
+        ]
 
 # Load Model-Wise Shortages from DB or defaults
 if 'model_shortages_df' not in st.session_state:
@@ -1315,19 +1320,19 @@ with config_expander:
     with col_extras:
         with st.container(border=True):
             st.markdown("#### ⚡ Punch EV (Nova) Component Starting Stocks")
-            st.markdown("<small style='color:#8896AB'>Enter clearance counts for 5 critical Punch EV materials (Defaults: 0)</small>", unsafe_allow_html=True)
+            st.markdown("<small style='color:#8896AB'>Enter clearance counts for 4 critical Punch EV materials (Defaults: 0)</small>", unsafe_allow_html=True)
             nova_vals = {}
             if 'nova_materials_df' in st.session_state and st.session_state.nova_materials_df is not None:
                 for idx, r_nova in st.session_state.nova_materials_df.iterrows():
                     nova_vals[str(r_nova['Material']).strip()] = int(r_nova['Clearance Qty'])
 
-            materials_list = ["Battery", "Combo", "Tube Frame(Craddle)", "Subframe", "RTB"]
+            materials_list = ["Battery", "Combo", "Tube Frame(Craddle)", "RTB"]
 
-            nova_cols = st.columns(3)
+            nova_cols = st.columns(2)
             new_nova_input_vals = {}
             for idx, mat in enumerate(materials_list):
                 current_val = nova_vals.get(mat, 0)
-                with nova_cols[idx % 3]:
+                with nova_cols[idx % 2]:
                     st.markdown(f"<div style='font-weight: 700; font-size: 12px; color: {label_color}; margin-bottom: 3px; word-break: break-word;'>{mat}</div>", unsafe_allow_html=True)
                     new_nova_input_vals[mat] = st.number_input(
                         label=mat,

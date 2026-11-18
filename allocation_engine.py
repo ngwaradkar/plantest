@@ -201,7 +201,7 @@ def run_allocation(pbs_queue, bom, true_engine, true_cockpit, true_wiring, true_
     - true_engine: dict of true stock for Engines (None if not available)
     - true_cockpit: dict of true stock for Cockpits (None if not available)
     - true_wiring: dict of true stock for Wiring (None if not available)
-    - true_nova: dict of Punch EV material stocks (Battery, Combo, Tube Frame(Craddle), Subframe, RTB)
+    - true_nova: dict of Punch EV material stocks (Battery, Combo, Tube Frame(Craddle), RTB)
     - model_shortages: list of dicts [{'Model': '...', 'Trims': '...', 'Part Name': '...', 'Stock': int}]
     - bom_lookup: dict mapping short_vc -> row dict
     

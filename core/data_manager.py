@@ -243,8 +243,11 @@ def get_dashboard_data(classified_files: Optional[Dict[str, Any]] = None) -> Das
         # Punch EV Nova Clearance
         if 'nova_materials_df' not in st.session_state or st.session_state.nova_materials_df is None:
             st.session_state.nova_materials_df = dl.load_nova_stocks_from_db()
-            
+
         if st.session_state.nova_materials_df is not None and not st.session_state.nova_materials_df.empty:
+            st.session_state.nova_materials_df = st.session_state.nova_materials_df[
+                st.session_state.nova_materials_df['Material'].astype(str).str.strip().str.lower() != 'subframe'
+            ]
             engine_stocks_tcf1['546816111212'] = int(st.session_state.nova_materials_df['Clearance Qty'].min())
         else:
             engine_stocks_tcf1['546816111212'] = 182
